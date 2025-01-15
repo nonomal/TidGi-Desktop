@@ -1,6 +1,4 @@
 import { DEFAULT_DOWNLOADS_PATH } from '@/constants/appPaths';
-import { LanguageModelRunner } from '@services/languageModel/interface';
-import { DEFAULT_TIMEOUT_DURATION } from '@services/languageModel/llmWorker/constants';
 import { app } from 'electron';
 import semver from 'semver';
 import { IPreferences } from './interface';
@@ -10,20 +8,13 @@ export const defaultPreferences: IPreferences = {
   alwaysOnTop: false,
   askForDownloadPath: true,
   attachToMenubar: false,
+  disableAntiAntiLeech: false,
+  disableAntiAntiLeechForUrls: [],
   downloadPath: DEFAULT_DOWNLOADS_PATH,
   hibernateUnusedWorkspacesAtLaunch: false,
   hideMenuBar: false,
-  showSideBarIcon: true,
   ignoreCertificateErrors: false,
   language: 'zh_CN',
-  languageModel: {
-    defaultModel: {
-      [LanguageModelRunner.llmRs]: 'llama.bin',
-      [LanguageModelRunner.llamaCpp]: 'llama.bin',
-      [LanguageModelRunner.rwkvCpp]: 'rwkv.bin',
-    },
-    timeoutDuration: DEFAULT_TIMEOUT_DURATION,
-  },
   menuBarAlwaysOnTop: false,
   pauseNotifications: '',
   pauseNotificationsBySchedule: false,
@@ -31,15 +22,18 @@ export const defaultPreferences: IPreferences = {
   pauseNotificationsByScheduleTo: getDefaultPauseNotificationsByScheduleTo(),
   pauseNotificationsMuteAudio: false,
   rememberLastPageVisited: true,
+  runOnBackground: true,
   shareWorkspaceBrowsingData: false,
-  sidebar: true,
+  showSideBarIcon: true,
   showSideBarText: true,
+  sidebar: true,
+  sidebarOnMenubar: false,
   spellcheck: true,
   spellcheckLanguages: ['en-US'],
   swipeToNavigate: true,
   syncBeforeShutdown: false,
-  syncOnlyWhenNoDraft: true,
   syncDebounceInterval: 1000 * 60 * 30,
+  syncOnlyWhenNoDraft: true,
   themeSource: 'system' as 'system' | 'light' | 'dark',
   titleBar: true,
   unreadCountBadge: true,

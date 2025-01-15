@@ -36,6 +36,7 @@ const AServerOptionsAccordion = styled(Accordion)`
 `;
 const AServerOptionsAccordionSummary = styled(AccordionSummary)`
   padding: 0;
+  flex-direction: row-reverse;
 `;
 const HttpsCertKeyListItem: typeof ListItem = styled(ListItem)`
   flex-direction: row;
@@ -72,14 +73,14 @@ export function ServerOptions(props: IServerOptionsProps) {
   const actualIP = useActualIp(getDefaultHTTPServerIP(port), id);
   // some feature need a username to work, so if userName is empty, assign a fallbackUserName DEFAULT_USER_NAME
   // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
-  const fallbackUserName = usePromiseValue<string>(async () => (await window.service.auth.get('userName')) as string, '');
+  const fallbackUserName = usePromiseValue<string>(async () => (await window.service.auth.get('userName'))!, '');
   const userNameIsEmpty = !(userName || fallbackUserName);
   const alreadyEnableSomeServerOptions = readOnlyMode;
   return (
     <AServerOptionsAccordion defaultExpanded={alreadyEnableSomeServerOptions}>
       <Tooltip title={t('EditWorkspace.ClickToExpand')}>
         <AServerOptionsAccordionSummary expandIcon={<ExpandMoreIcon />}>
-          {t('EditWorkspace.ServerOptions')}
+          {t('EditWorkspace.ServerOptions')} ({t('EditWorkspace.EnableHTTPAPI')})
         </AServerOptionsAccordionSummary>
       </Tooltip>
       <AccordionDetails>
@@ -107,7 +108,7 @@ export function ServerOptions(props: IServerOptionsProps) {
                   {t('EditWorkspace.URL')}{' '}
                   <Link
                     onClick={async () => {
-                      actualIP && (await window.service.native.open(actualIP));
+                      actualIP && (await window.service.native.openURI(actualIP));
                     }}
                     style={{ cursor: 'pointer' }}
                   >
@@ -341,6 +342,7 @@ export function ServerOptions(props: IServerOptionsProps) {
           renderInput={(parameters: AutocompleteRenderInputParams) => (
             <TextField {...parameters} label={t('EditWorkspace.WikiRootTiddler')} helperText={t('EditWorkspace.WikiRootTiddlerDescription')} />
           )}
+          renderOption={(props, option) => <li {...props}>{t(`EditWorkspace.WikiRootTiddlerItems.${option.replace('$:/core/save/', '')}`)} ({option})</li>}
         />
       </AccordionDetails>
     </AServerOptionsAccordion>

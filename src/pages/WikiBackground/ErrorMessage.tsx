@@ -49,7 +49,7 @@ export function WikiErrorMessages(props: IWikiErrorMessagesProps): JSX.Element {
             <Button
               variant='outlined'
               onClick={async () => {
-                await window.service.native.open(wikiLogs.filePath, true);
+                await window.service.native.openPath(wikiLogs.filePath, true);
               }}
             >
               {t('Preference.OpenLogFolder')}
@@ -86,7 +86,7 @@ export function ViewLoadErrorMessages(props: IViewLoadErrorMessagesProps): JSX.E
   const { t } = useTranslation();
   const requestReload = useCallback(async (): Promise<void> => {
     await window.service.workspace.updateMetaData(props.activeWorkspace.id, { didFailLoadErrorMessage: null, isLoading: false });
-    await window.service.window.reload(window.meta.windowName);
+    await window.service.window.reload(window.meta().windowName);
     await window.service.view.removeAllViewOfWorkspace(props.activeWorkspace.id);
     await window.service.wiki.stopWiki(props.activeWorkspace.id);
     await window.service.workspaceView.initializeWorkspaceView(props.activeWorkspace);
@@ -118,10 +118,10 @@ export function ViewLoadErrorMessages(props: IViewLoadErrorMessagesProps): JSX.E
                 Check the{' '}
                 <b
                   onClick={async () => {
-                    await window.service.native.open(await window.service.context.get('LOG_FOLDER'), true);
+                    await window.service.native.openPath(await window.service.context.get('LOG_FOLDER'), true);
                   }}
                   onKeyPress={async () => {
-                    await window.service.native.open(await window.service.context.get('LOG_FOLDER'), true);
+                    await window.service.native.openPath(await window.service.context.get('LOG_FOLDER'), true);
                   }}
                   role='button'
                   tabIndex={0}

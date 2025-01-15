@@ -2,24 +2,18 @@ import { LOG_FOLDER } from '@/constants/appPaths';
 import winston, { format } from 'winston';
 import RendererTransport from './rendererTransport';
 import 'winston-daily-rotate-file';
-import { levels } from '@/constants/logger';
 
 export * from './wikiOutput';
 
-export type ILogLevels = keyof typeof levels;
 const logger = (
   process.env.NODE_ENV === 'test'
     ? Object.assign(console, {
       emerg: console.error.bind(console),
       alert: console.error.bind(console),
-      crit: console.error.bind(console),
-      warning: console.warn.bind(console),
-      notice: console.log.bind(console),
       debug: console.log.bind(console),
       close: () => {},
     })
     : winston.createLogger({
-      levels,
       transports: [
         new winston.transports.Console(),
         new winston.transports.DailyRotateFile({
@@ -47,3 +41,18 @@ const logger = (
     })
 ) as winston.Logger;
 export { logger };
+
+export function destroyLogger(): void {
+  logger.close();
+  logger.removeAllListeners();
+  logger.destroy();
+  logger.write = (chunk: unknown) => {
+    // no console here, otherwise will cause `Error: write EIO`
+    // console.log('Message after logger destroyed', chunk);
+    return true;
+  };
+  logger.error = (message: unknown) => {
+    // console.log('Error Message after logger destroyed', message);
+    return logger;
+  };
+}
