@@ -3,7 +3,8 @@
 import type { IWikiServerStatusObject } from '@services/wiki/wikiWorker/ipcServerRoutes';
 import type { WindowMeta, WindowNames } from '@services/windows/WindowProperties';
 import debounce from 'lodash/debounce';
-import type { IChangedTiddlers, ITiddlerFields, Logger, Syncer, Tiddler, Wiki } from 'tiddlywiki';
+import type { IChangedTiddlers, ITiddlerFields, IUtils, Syncer, Tiddler, Wiki } from 'tiddlywiki';
+import type { Logger } from '$:/core/modules/utils/logger.js';
 
 type ISyncAdaptorGetStatusCallback = (error: Error | null, isLoggedIn?: boolean, username?: string, isReadOnly?: boolean, isAnonymous?: boolean) => void;
 type ISyncAdaptorGetTiddlersJSONCallback = (error: Error | null, tiddler?: Array<Omit<ITiddlerFields, 'text'>>) => void;
@@ -40,7 +41,7 @@ class TidGiIPCSyncAdaptor {
     this.isLoggedIn = false;
     this.isReadOnly = false;
     this.logoutIsAvailable = true;
-    this.workspaceID = (window.meta as WindowMeta[WindowNames.view]).workspaceID!;
+    this.workspaceID = (window.meta() as WindowMeta[WindowNames.view]).workspaceID!;
     if (window.observables?.wiki?.getWikiChangeObserver$ !== undefined) {
       // if install-electron-ipc-cat is faster than us, just subscribe to the observable. Otherwise we normally will wait for it to call us here.
       this.setupSSE();
@@ -187,6 +188,9 @@ class TidGiIPCSyncAdaptor {
   async getSkinnyTiddlers(callback: ISyncAdaptorGetTiddlersJSONCallback) {
     try {
       this.logger.log('getSkinnyTiddlers');
+      /**
+       * This by default omit the text field.
+       */
       const tiddlersJSONResponse = await this.wikiService.callWikiIpcServerRoute(
         this.workspaceID,
         'getTiddlersJSON',
@@ -220,6 +224,8 @@ class TidGiIPCSyncAdaptor {
       const tiddlersToNotSave = $tw.utils.parseStringArray(this.wiki.getTiddlerText('$:/plugins/linonetwo/tidgi-ipc-syncadaptor/TiddlersToNotSave') ?? '');
       if (tiddlersToNotSave.includes(title)) {
         this.logger.log(`Ignore saveTiddler ${title}, config in TiddlersToNotSave`);
+        // if not calling callback in sync adaptor, will cause it waiting forever
+        callback(null);
         return;
       }
       this.logger.log(`saveTiddler ${title}`);
@@ -247,6 +253,7 @@ class TidGiIPCSyncAdaptor {
         }
       }
     } catch (error) {
+      console.error(error);
       // eslint-disable-next-line n/no-callback-literal
       callback?.(error as Error);
     }
@@ -278,19 +285,12 @@ class TidGiIPCSyncAdaptor {
   options include:
   tiddlerInfo: the syncer's tiddlerInfo for this tiddler
   */
-  async deleteTiddler(title: string, callback: ISyncAdaptorDeleteTiddlerCallback, options: { tiddlerInfo: { adaptorInfo: { bag?: string } } }) {
+  async deleteTiddler(title: string, callback: ISyncAdaptorDeleteTiddlerCallback) {
     if (this.isReadOnly) {
       callback(null);
       return;
     }
-    // If we don't have a bag it means that the tiddler hasn't been seen by the server, so we don't need to delete it
-    const bag = options?.tiddlerInfo?.adaptorInfo?.bag;
-    this.logger.log('deleteTiddler', bag);
-    // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
-    if (!bag) {
-      callback(null, options.tiddlerInfo.adaptorInfo);
-      return;
-    }
+    this.logger.log('deleteTiddler');
     this.addRecentUpdatedTiddlersFromClient('deletions', title);
     const getTiddlerResponse = await this.wikiService.callWikiIpcServerRoute(
       this.workspaceID,
@@ -341,7 +341,7 @@ class TidGiIPCSyncAdaptor {
 if ($tw.browser && typeof window !== 'undefined') {
   const isInTidGi = typeof document !== 'undefined' && document?.location?.protocol?.startsWith('tidgi');
   const servicesExposed = Boolean(window.service?.wiki);
-  const hasWorkspaceIDinMeta = Boolean((window.meta as WindowMeta[WindowNames.view] | undefined)?.workspaceID);
+  const hasWorkspaceIDinMeta = Boolean((window.meta?.() as WindowMeta[WindowNames.view] | undefined)?.workspaceID);
   if (isInTidGi && servicesExposed && hasWorkspaceIDinMeta) {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
     exports.adaptorClass = TidGiIPCSyncAdaptor;

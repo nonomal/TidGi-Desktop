@@ -1,3 +1,4 @@
+import type { CreateWorkspaceTabs } from '@/pages/AddWorkspace/constants';
 import type { PreferenceSections } from '@services/preferences/interface';
 
 export enum WindowNames {
@@ -46,8 +47,8 @@ export const windowDimension: Record<WindowNames, { height?: number; width?: num
     height: 768,
   },
   [WindowNames.menuBar]: {
-    width: 400,
-    height: 500,
+    width: 500,
+    height: 600,
   },
   [WindowNames.about]: {
     width: 400,
@@ -84,7 +85,7 @@ export const windowDimension: Record<WindowNames, { height?: number; width?: num
 };
 
 export interface IPreferenceWindowMeta {
-  gotoTab?: PreferenceSections;
+  preferenceGotoTab?: PreferenceSections;
   preventClosingWindow?: boolean;
 }
 
@@ -94,8 +95,8 @@ export interface IPreferenceWindowMeta {
  */
 export interface WindowMeta {
   [WindowNames.about]: undefined;
-  [WindowNames.addWorkspace]: undefined;
-  [WindowNames.any]: { uri: string };
+  [WindowNames.addWorkspace]: { addWorkspaceTab?: CreateWorkspaceTabs };
+  [WindowNames.any]: { uri?: string };
   [WindowNames.auth]: undefined;
   [WindowNames.editWorkspace]: { workspaceID?: string };
   [WindowNames.main]: { forceClose?: boolean };
@@ -111,7 +112,7 @@ export type IPossibleWindowMeta<M extends WindowMeta[WindowNames] = WindowMeta[W
 } & M;
 
 /**
- * Similar to WindowMeta, but is for BrowserView (workspace web content) and popup window from the BrowserView
+ * Similar to WindowMeta, but is for WebContentsView (workspace web content) and popup window from the WebContentsView
  */
 export interface IBrowserViewMetaData {
   isPopup?: boolean;

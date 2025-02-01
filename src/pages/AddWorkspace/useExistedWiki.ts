@@ -63,7 +63,7 @@ export function useExistedWiki(
 
   const onSubmit = useCallback(async () => {
     wikiCreationMessageSetter(t('AddWorkspace.Processing'));
-    const newWorkspaceConfig = await workspaceConfigFromForm(form, isCreateMainWorkspace, isCreateSyncedWorkspace);
+    const newWorkspaceConfig = workspaceConfigFromForm(form, isCreateMainWorkspace, isCreateSyncedWorkspace);
     if (!form.wikiFolderLocation) {
       throw new Error(t('AddWorkspace.MainWorkspaceLocation') + t('AddWorkspace.NotFilled'));
     }
@@ -84,6 +84,7 @@ export function useExistedWiki(
         await window.service.wiki.createSubWiki(
           parentFolderLocationForExistedFolder,
           wikiFolderNameForExistedFolder,
+          'subwiki',
           form.mainWikiToLink?.wikiFolderLocation,
           form.tagName,
           true,

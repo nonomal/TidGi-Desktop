@@ -75,13 +75,13 @@ export function useNewWiki(
     wikiCreationMessageSetter(t('AddWorkspace.Processing'));
     hasErrorSetter?.(false);
     try {
-      const newWorkspaceConfig = await workspaceConfigFromForm(form, isCreateMainWorkspace, isCreateSyncedWorkspace);
+      const newWorkspaceConfig = workspaceConfigFromForm(form, isCreateMainWorkspace, isCreateSyncedWorkspace);
       if (isCreateMainWorkspace) {
         if (options?.noCopyTemplate !== true) {
           await window.service.wiki.copyWikiTemplate(form.parentFolderLocation, form.wikiFolderName);
         }
       } else {
-        await window.service.wiki.createSubWiki(form.parentFolderLocation, form.wikiFolderName, form.mainWikiToLink?.wikiFolderLocation, form.tagName);
+        await window.service.wiki.createSubWiki(form.parentFolderLocation, form.wikiFolderName, 'subwiki', form.mainWikiToLink?.wikiFolderLocation, form.tagName);
       }
       await callWikiInitialization(newWorkspaceConfig, wikiCreationMessageSetter, t, form.gitUserInfo, { notClose: options?.notClose, from: WikiCreationMethod.Create });
     } catch (error) {

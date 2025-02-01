@@ -50,16 +50,13 @@ module.exports = {
   externals: [
     // simply external all things will make require can't find things. Only exclude what we copied in scripts/afterPack.js
     // nodeExternals({
-    //   additionalModuleDirs: ['@tiddlygit/tiddlywiki'],
+    //   additionalModuleDirs: ['tiddlywiki'],
     //   allowlist: [/(threads-plugin)/],
     // }),
-    '@tiddlygit/tiddlywiki',
-    'llama-node',
-    '@llama-node/llama-cpp',
-    '@llama-node/core',
-    '@llama-node/rwkv-cpp',
+    'tiddlywiki',
     'dugite',
     'zx',
+    ...(process.platform === 'win32' ? [] : ['registry-js']),
   ],
   // externalsType: 'commonjs',
   // externalsPresets: { electronMain: true },

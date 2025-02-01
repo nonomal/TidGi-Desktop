@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/ban-types */
 /**
  * Provide API from main services to GUI (for example, preference window), and tiddlywiki
- * This file should be required by BrowserView's preload script to work
+ * This file should be required by WebContentsView's preload script to work
  */
 
 import { createProxy } from 'electron-ipc-cat/client';
@@ -10,12 +10,12 @@ import { AsyncifyProxy } from 'electron-ipc-cat/common';
 import { AuthenticationServiceIPCDescriptor, IAuthenticationService } from '@services/auth/interface';
 import { ContextServiceIPCDescriptor, IContextService } from '@services/context/interface';
 import { GitServiceIPCDescriptor, IGitService } from '@services/git/interface';
-import { ILanguageModelService, LanguageModelServiceIPCDescriptor } from '@services/languageModel/interface';
 import { IMenuService, MenuServiceIPCDescriptor } from '@services/menu/interface';
 import { INativeService, NativeServiceIPCDescriptor } from '@services/native/interface';
 import { INotificationService, NotificationServiceIPCDescriptor } from '@services/notifications/interface';
 import { IPagesService, PagesServiceIPCDescriptor } from '@services/pages/interface';
 import { IPreferenceService, PreferenceServiceIPCDescriptor } from '@services/preferences/interface';
+import { ISyncService, SyncServiceIPCDescriptor } from '@services/sync/interface';
 import { ISystemPreferenceService, SystemPreferenceServiceIPCDescriptor } from '@services/systemPreferences/interface';
 import { IThemeService, ThemeServiceIPCDescriptor } from '@services/theme/interface';
 import { IUpdaterService, UpdaterServiceIPCDescriptor } from '@services/updater/interface';
@@ -29,12 +29,12 @@ import { IWorkspaceViewService, WorkspaceViewServiceIPCDescriptor } from '@servi
 export const auth = createProxy<IAuthenticationService>(AuthenticationServiceIPCDescriptor);
 export const context = createProxy<IContextService>(ContextServiceIPCDescriptor);
 export const git = createProxy<IGitService>(GitServiceIPCDescriptor);
-export const languageModel = createProxy<ILanguageModelService>(LanguageModelServiceIPCDescriptor);
 export const menu = createProxy<IMenuService>(MenuServiceIPCDescriptor);
 export const native = createProxy<INativeService>(NativeServiceIPCDescriptor);
 export const notification = createProxy<INotificationService>(NotificationServiceIPCDescriptor);
 export const pages = createProxy<IPagesService>(PagesServiceIPCDescriptor);
 export const preference = createProxy<IPreferenceService>(PreferenceServiceIPCDescriptor);
+export const sync = createProxy<ISyncService>(SyncServiceIPCDescriptor);
 export const systemPreference = createProxy<ISystemPreferenceService>(SystemPreferenceServiceIPCDescriptor);
 export const theme = createProxy<IThemeService>(ThemeServiceIPCDescriptor);
 export const updater = createProxy<IUpdaterService>(UpdaterServiceIPCDescriptor);
@@ -49,12 +49,12 @@ export const descriptors = {
   auth: AuthenticationServiceIPCDescriptor,
   context: ContextServiceIPCDescriptor,
   git: GitServiceIPCDescriptor,
-  languageModel: LanguageModelServiceIPCDescriptor,
   menu: MenuServiceIPCDescriptor,
   native: NativeServiceIPCDescriptor,
   notification: NotificationServiceIPCDescriptor,
   pages: PagesServiceIPCDescriptor,
   preference: PreferenceServiceIPCDescriptor,
+  sync: SyncServiceIPCDescriptor,
   systemPreference: SystemPreferenceServiceIPCDescriptor,
   theme: ThemeServiceIPCDescriptor,
   updater: UpdaterServiceIPCDescriptor,

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/strict-boolean-expressions */
 /* eslint-disable @typescript-eslint/require-await */
 import { app, dialog, ipcMain, MessageBoxOptions, shell } from 'electron';
 import fs from 'fs-extra';
@@ -7,8 +8,9 @@ import { Observable } from 'rxjs';
 
 import { NativeChannel } from '@/constants/channels';
 import { ZX_FOLDER } from '@/constants/paths';
+import { githubDesktopUrl } from '@/constants/urls';
 import { lazyInject } from '@services/container';
-import { ILogLevels, logger } from '@services/libs/log';
+import { logger } from '@services/libs/log';
 import { getLocalHostUrlWithActualIP, getUrlWithCorrectProtocol, replaceUrlPortWithSettingPort } from '@services/libs/url';
 import serviceIdentifier from '@services/serviceIdentifier';
 import { IWikiService, ZxWorkerControlActions } from '@services/wiki/interface';
@@ -21,7 +23,6 @@ import { ZxNotInitializedError } from './error';
 import { findEditorOrDefault, findGitGUIAppOrDefault, launchExternalEditor } from './externalApp';
 import { INativeService, IPickDirectoryOptions } from './interface';
 import { reportErrorToGithubWithTemplates } from './reportError';
-import { githubDesktopUrl } from '@/constants/urls';
 
 @injectable()
 export class NativeService implements INativeService {
@@ -64,26 +65,29 @@ export class NativeService implements INativeService {
     return false;
   }
 
-  public async openPath(filePath: string): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
+  public async openURI(uri: string, showItemInFolder = false): Promise<void> {
+    logger.debug(`NativeService.open() Opening ${uri}`, { showItemInFolder });
+    showItemInFolder ? shell.showItemInFolder(uri) : await shell.openExternal(uri);
+  }
+
+  public async openPath(filePath: string, showItemInFolder?: boolean): Promise<void> {
     if (!filePath.trim()) {
       return;
     }
     logger.debug(`NativeService.openPath() Opening ${filePath}`);
     // TODO: add a switch that tell user these are dangerous features, use at own risk.
     if (path.isAbsolute(filePath)) {
-      await shell.openPath(filePath);
+      showItemInFolder ? shell.showItemInFolder(filePath) : await shell.openPath(filePath);
     } else {
       const activeWorkspace = this.workspaceService.getActiveWorkspaceSync();
       if (activeWorkspace?.wikiFolderLocation !== undefined) {
         const absolutePath = path.resolve(path.join(activeWorkspace.wikiFolderLocation, filePath));
-        await shell.openPath(absolutePath);
+        showItemInFolder ? shell.showItemInFolder(absolutePath) : await shell.openPath(absolutePath);
       }
     }
   }
 
   public async copyPath(fromFilePath: string, toFilePath: string, options?: { fileToDir?: boolean }): Promise<false | string> {
-    // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
     if (!fromFilePath.trim() || !toFilePath.trim()) {
       logger.error('NativeService.copyPath() fromFilePath or toFilePath is empty', { fromFilePath, toFilePath });
       return false;
@@ -102,6 +106,29 @@ export class NativeService implements INativeService {
     }
     await fs.copy(fromFilePath, toFilePath);
     return toFilePath;
+  }
+
+  public async movePath(fromFilePath: string, toFilePath: string, options?: { fileToDir?: boolean }): Promise<false | string> {
+    if (!fromFilePath.trim() || !toFilePath.trim()) {
+      logger.error('NativeService.movePath() fromFilePath or toFilePath is empty', { fromFilePath, toFilePath });
+      return false;
+    }
+    if (!(await fs.exists(fromFilePath))) {
+      logger.error('NativeService.movePath() fromFilePath not exists', { fromFilePath, toFilePath });
+      return false;
+    }
+    logger.debug(`NativeService.movePath() move from ${fromFilePath} to ${toFilePath}`, options);
+    try {
+      if (options?.fileToDir === true) {
+        const folderPath = path.dirname(toFilePath);
+        await fs.ensureDir(folderPath);
+      }
+      await fs.move(fromFilePath, toFilePath);
+      return toFilePath;
+    } catch (error) {
+      logger.error('NativeService.movePath() failed', { error });
+      return false;
+    }
   }
 
   public executeZxScript$(zxWorkerArguments: IZxFileInput, workspaceID?: string): Observable<string> {
@@ -205,10 +232,6 @@ ${message.message}
     return [];
   }
 
-  public async open(uri: string, isDirectory = false): Promise<void> {
-    isDirectory ? shell.showItemInFolder(uri) : await shell.openExternal(uri);
-  }
-
   public async mkdir(absoulutePath: string): Promise<void> {
     await fs.mkdirp(absoulutePath);
   }
@@ -217,7 +240,7 @@ ${message.message}
     app.quit();
   }
 
-  public async log(level: ILogLevels, message: string, meta?: Record<string, unknown>): Promise<void> {
+  public async log(level: string, message: string, meta?: Record<string, unknown>): Promise<void> {
     logger.log(level, message, meta);
   }
 
@@ -270,7 +293,7 @@ ${message.message}
      * hostname: `.`, pathname: `/files/xxx.png`
      */
     let filePath = decodeURIComponent(`${hostname}${pathname}`);
-    // get "/D:/" on windows
+    // get "D:/" instead of "/D:/" on windows
     if (process.platform === 'win32' && filePath.startsWith('/')) {
       filePath = filePath.substring(1);
     }
