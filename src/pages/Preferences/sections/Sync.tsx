@@ -1,10 +1,6 @@
-import { Divider, List, ListItemSecondaryAction, Switch } from '@mui/material';
+import { Divider, List, Switch } from '@mui/material';
 import { TimePicker } from '@mui/x-date-pickers/TimePicker';
-import fromUnixTime from 'date-fns/fromUnixTime';
-import setDate from 'date-fns/setDate';
-import setMonth from 'date-fns/setMonth';
-import setYear from 'date-fns/setYear';
-import React from 'react';
+import { fromUnixTime, setDate, setMonth, setYear } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
 import { TokenForm } from '../../../components/TokenForm';
@@ -15,7 +11,7 @@ import { WindowNames } from '@services/windows/WindowProperties';
 import { Paper, SectionTitle, TimePickerContainer } from '../PreferenceComponents';
 import type { ISectionProps } from '../useSections';
 
-export function Sync(props: Required<ISectionProps>): JSX.Element {
+export function Sync(props: Required<ISectionProps>): React.JSX.Element {
   const { t } = useTranslation();
 
   const preference = usePreferenceObservable();
@@ -31,9 +27,8 @@ export function Sync(props: Required<ISectionProps>): JSX.Element {
                 <TokenForm />
               </ListItem>
               <Divider />
-              <ListItem>
-                <ListItemText primary={`${t('Preference.SyncBeforeShutdown')} (Mac/Linux)`} secondary={t('Preference.SyncBeforeShutdownDescription')} />
-                <ListItemSecondaryAction>
+              <ListItem
+                secondaryAction={
                   <Switch
                     edge='end'
                     color='primary'
@@ -43,11 +38,12 @@ export function Sync(props: Required<ISectionProps>): JSX.Element {
                       props.requestRestartCountDown();
                     }}
                   />
-                </ListItemSecondaryAction>
+                }
+              >
+                <ListItemText primary={`${t('Preference.SyncBeforeShutdown')} (Mac/Linux)`} secondary={t('Preference.SyncBeforeShutdownDescription')} />
               </ListItem>
-              <ListItem>
-                <ListItemText primary={`${t('Preference.SyncOnlyWhenNoDraft')}`} secondary={t('Preference.SyncOnlyWhenNoDraftDescription')} />
-                <ListItemSecondaryAction>
+              <ListItem
+                secondaryAction={
                   <Switch
                     edge='end'
                     color='primary'
@@ -56,7 +52,9 @@ export function Sync(props: Required<ISectionProps>): JSX.Element {
                       await window.service.preference.set('syncOnlyWhenNoDraft', event.target.checked);
                     }}
                   />
-                </ListItemSecondaryAction>
+                }
+              >
+                <ListItemText primary={`${t('Preference.SyncOnlyWhenNoDraft')}`} secondary={t('Preference.SyncOnlyWhenNoDraftDescription')} />
               </ListItem>
               <Divider />
               <ListItem>

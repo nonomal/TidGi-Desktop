@@ -1,55 +1,73 @@
+/* eslint-disable @typescript-eslint/no-confusing-void-expression */
+/* eslint-disable @typescript-eslint/await-thenable */
 /* eslint-disable @typescript-eslint/strict-boolean-expressions */
-import { APP_DOMAIN, APP_ID } from '@/constants/auth';
 import { SupportedStorageServices } from '@services/types';
-import { AuthenticationClient } from 'authing-js-sdk';
-import { useCallback, useMemo } from 'react';
+import { truncate } from 'lodash';
+import { useCallback, useEffect } from 'react';
 
 export function useAuth(storageService: SupportedStorageServices): [() => Promise<void>, () => Promise<void>] {
-  const authing = useMemo(
-    () =>
-      new AuthenticationClient({
-        appId: APP_ID,
-        appHost: APP_DOMAIN,
-      }),
-    [],
-  );
-
-  const onFailure = useCallback((error: Error) => {
-    console.error(error);
-  }, []);
   const onClickLogout = useCallback(async () => {
-    await authing.logout();
-    await window.service.window.clearStorageData();
-  }, [authing]);
+    try {
+      await window.service.auth.set(`${storageService}-token`, '');
+      // await window.service.window.clearStorageData();
+    } catch (error) {
+      console.error(error);
+    }
+  }, [storageService]);
 
   const onClickLogin = useCallback(async () => {
-    // clear token first, otherwise github login window won't give us a chance to see the form
-    // void this.auth.logout();
-    // window.remote.clearStorageData();
+    await onClickLogout();
     try {
-      await authing.social.authorize(storageService, {
-        onSuccess: async (user) => {
-          const thirdPartyIdentity = user.identities?.find((identity) => identity?.provider === storageService);
-          if (thirdPartyIdentity) {
-            if (thirdPartyIdentity.accessToken) {
-              await window.service.auth.set(`${storageService}-token`, thirdPartyIdentity.accessToken);
-            }
-            if (user.username) {
-              await window.service.auth.set(`${storageService}-userName`, user.username);
-            }
-            if (user.email) {
-              await window.service.auth.set(`${storageService}-email`, user.email);
-            }
-          }
-        },
-        onError: (code, message) => {
-          onFailure(new Error(message + String(code)));
-        },
-      });
+      // redirect current page to oauth login page
+      switch (storageService) {
+        case SupportedStorageServices.github: {
+          location.href = await window.service.context.get('GITHUB_OAUTH_PATH');
+        }
+      }
     } catch (error) {
-      onFailure(error as Error);
+      console.error(error);
     }
-  }, [authing.social, onFailure, storageService]);
+  }, [onClickLogout, storageService]);
 
   return [onClickLogin, onClickLogout];
+}
+
+const log = (message: string, meta?: Record<string, unknown>): void => {
+  void window.service.native.log('debug', message, { function: 'useGetGithubUserInfoOnLoad', ...meta });
+};
+export function useGetGithubUserInfoOnLoad(): void {
+  useEffect(() => {
+    void Promise.all([window.service.auth.get('userName'), window.service.auth.getUserInfos()]).then(async ([userName, userInfo]) => {
+      try {
+        const token = userInfo[`${SupportedStorageServices.github}-token`];
+        if (token) {
+          log(`get user name and email using github api using token: ${truncate(token ?? '', { length: 6 })}...`);
+          // get user name and email using github api
+          const response = await fetch('https://api.github.com/user', {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+          const githubUserInfo = await (response.json() as Promise<{ email: string; login: string; name: string }>);
+          log(`Get githubUserInfo`, { githubUserInfo });
+          // this hook will execute on every open of GitTokenForm, so we need to check if we already have the info, not overwrite userInfo that user manually written.
+          if (!userInfo[`${SupportedStorageServices.github}-userName`] && githubUserInfo.login) {
+            userInfo[`${SupportedStorageServices.github}-userName`] = githubUserInfo.login;
+          }
+          if (!userInfo[`${SupportedStorageServices.github}-email`] && githubUserInfo.email) {
+            userInfo[`${SupportedStorageServices.github}-email`] = githubUserInfo.email;
+          }
+          // sometimes user already pick a Chinese username that is different from the one on Github
+          if (!userName && githubUserInfo.name) {
+            userInfo.userName = githubUserInfo.name;
+          }
+          log(`Store userInfo`);
+          await window.service.auth.setUserInfos(userInfo);
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    });
+  }, []);
 }

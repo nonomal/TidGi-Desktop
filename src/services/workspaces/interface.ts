@@ -5,6 +5,10 @@ import { BehaviorSubject, Observable } from 'rxjs';
 import { SetOptional } from 'type-fest';
 
 /**
+ * Fields that not part of config that user can edit. Change of these field won't show "save" button on edit page.
+ */
+export const nonConfigFields = ['metadata', 'lastNodeJSArgv'];
+/**
  * A workspace is basically a TiddlyWiki instance, it can be a local/online wiki (depends on git related config). Can be a mainWiki that starts a a TiddlyWiki instance or subwiki that link to a main wiki.
  *
  * New value added here can be init in `sanitizeWorkspace`
@@ -143,11 +147,16 @@ export interface IWorkspaceMetaData {
    * indicating server or webpage is still loading
    */
   isLoading?: boolean;
+  /**
+   * Is restarting service for this workspace.
+   */
+  isRestarting?: boolean;
 }
 
 export interface IWorkspaceWithMetadata extends IWorkspace {
   metadata: IWorkspaceMetaData;
 }
+export type IWorkspacesWithMetadata = Record<string, IWorkspaceWithMetadata>;
 
 /**
  * Ignore some field that will assign default value in workspaceService.create, these field don't require to be filled in AddWorkspace form
@@ -177,7 +186,16 @@ export interface IWorkspaceService {
   getActiveWorkspaceSync: () => IWorkspace | undefined;
   getAllMetaData: () => Promise<Record<string, Partial<IWorkspaceMetaData>>>;
   getByWikiFolderLocation(wikiFolderLocation: string): Promise<IWorkspace | undefined>;
+  /**
+   * Get workspace by human readable wiki name, if no workspace found, return undefined. If multiple workspace with same name, return the first one order by sidebar.
+   */
+  getByWikiName(wikiName: string): Promise<IWorkspace | undefined>;
   getFirstWorkspace: () => Promise<IWorkspace | undefined>;
+  /**
+   * Get parent workspace of a subWorkspace, if the workspace you provided is a main workspace, return undefined.
+   * @param subWorkspace your workspace object
+   */
+  getMainWorkspace(subWorkspace: IWorkspace): IWorkspace | undefined;
   getMetaData: (id: string) => Promise<Partial<IWorkspaceMetaData>>;
   getNextWorkspace: (id: string) => Promise<IWorkspace | undefined>;
   getPreviousWorkspace: (id: string) => Promise<IWorkspace | undefined>;
@@ -188,6 +206,11 @@ export interface IWorkspaceService {
   getSubWorkspacesAsListSync(workspaceID: string): IWorkspace[];
   getWorkspaces(): Promise<Record<string, IWorkspace>>;
   getWorkspacesAsList(): Promise<IWorkspace[]>;
+  getWorkspacesWithMetadata(): IWorkspacesWithMetadata;
+  /**
+   * Open a tiddler in the workspace, open workspace's tag by default.
+   */
+  openWorkspaceTiddler(workspace: IWorkspace, title?: string): Promise<void>;
   remove(id: string): Promise<void>;
   removeWorkspacePicture(id: string): Promise<void>;
   set(id: string, workspace: IWorkspace, immediate?: boolean): Promise<void>;
@@ -200,26 +223,33 @@ export interface IWorkspaceService {
   setWorkspaces(newWorkspaces: Record<string, IWorkspace>): Promise<void>;
   update(id: string, workspaceSetting: Partial<IWorkspace>, immediate?: boolean): Promise<void>;
   updateMetaData: (id: string, options: Partial<IWorkspaceMetaData>) => Promise<void>;
+  /**
+   * Manually refresh the observable's content, that will be received by react component.
+   */
+  updateWorkspaceSubject(): void;
   workspaceDidFailLoad(id: string): Promise<boolean>;
-  workspaces$: BehaviorSubject<Record<string, IWorkspaceWithMetadata>>;
+  workspaces$: BehaviorSubject<IWorkspacesWithMetadata | undefined>;
 }
 export const WorkspaceServiceIPCDescriptor = {
   channel: WorkspaceChannel.name,
   properties: {
-    countWorkspaces: ProxyPropertyType.Function,
     clearActiveWorkspace: ProxyPropertyType.Function,
+    countWorkspaces: ProxyPropertyType.Function,
     create: ProxyPropertyType.Function,
     get: ProxyPropertyType.Function,
     get$: ProxyPropertyType.Function$,
     getActiveWorkspace: ProxyPropertyType.Function,
     getAllMetaData: ProxyPropertyType.Function,
-    getByName: ProxyPropertyType.Function,
+    getByWikiName: ProxyPropertyType.Function,
     getFirstWorkspace: ProxyPropertyType.Function,
+    getMainWorkspace: ProxyPropertyType.Function,
     getMetaData: ProxyPropertyType.Function,
     getNextWorkspace: ProxyPropertyType.Function,
     getPreviousWorkspace: ProxyPropertyType.Function,
     getWorkspaces: ProxyPropertyType.Function,
     getWorkspacesAsList: ProxyPropertyType.Function,
+    getWorkspacesWithMetadata: ProxyPropertyType.Function,
+    openWorkspaceTiddler: ProxyPropertyType.Function,
     remove: ProxyPropertyType.Function,
     removeWorkspacePicture: ProxyPropertyType.Function,
     set: ProxyPropertyType.Function,
@@ -228,6 +258,7 @@ export const WorkspaceServiceIPCDescriptor = {
     setWorkspaces: ProxyPropertyType.Function,
     update: ProxyPropertyType.Function,
     updateMetaData: ProxyPropertyType.Function,
+    updateWorkspaceSubject: ProxyPropertyType.Value$,
     workspaceDidFailLoad: ProxyPropertyType.Function,
     workspaces$: ProxyPropertyType.Value$,
   },

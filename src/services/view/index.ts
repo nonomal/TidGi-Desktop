@@ -1,7 +1,8 @@
+/* eslint-disable @typescript-eslint/strict-boolean-expressions */
 /* eslint-disable n/no-callback-literal */
 /* eslint-disable @typescript-eslint/require-await */
 /* eslint-disable @typescript-eslint/consistent-type-assertions */
-import { BrowserView, BrowserWindow, ipcMain, session, WebPreferences } from 'electron';
+import { BrowserWindow, ipcMain, WebContentsView, WebPreferences } from 'electron';
 import { injectable } from 'inversify';
 
 import type { IMenuService } from '@services/menu/interface';
@@ -19,10 +20,12 @@ import { lazyInject } from '@services/container';
 import getFromRenderer from '@services/libs/getFromRenderer';
 import getViewBounds from '@services/libs/getViewBounds';
 import { i18n } from '@services/libs/i18n';
+import { isBrowserWindow } from '@services/libs/isBrowserWindow';
 import { logger } from '@services/libs/log';
 import { INativeService } from '@services/native/interface';
 import { IBrowserViewMetaData, WindowNames } from '@services/windows/WindowProperties';
 import { IWorkspace } from '@services/workspaces/interface';
+import debounce from 'lodash/debounce';
 import { setViewEventName } from './constants';
 import { ViewLoadUrlError } from './error';
 import { IViewService } from './interface';
@@ -100,7 +103,7 @@ export class View implements IViewService {
         },
       },
       // same behavior as BrowserWindow with autoHideMenuBar: true
-      // but with addition to readjust BrowserView so it won't cover the menu bar
+      // but with addition to readjust WebContentsView so it won't cover the menu bar
       {
         label: () => i18n.t('Preference.ToggleMenuBar'),
         visible: false,
@@ -109,7 +112,7 @@ export class View implements IViewService {
         click: async (_menuItem, browserWindow) => {
           // if back is called in popup window
           // open menu bar in the popup window instead
-          if (browserWindow === undefined) return;
+          if (!isBrowserWindow(browserWindow)) return;
           const { isPopup } = await getFromRenderer<IBrowserViewMetaData>(MetaDataChannel.getViewMetaData, browserWindow);
           if (isPopup === true) {
             browserWindow.setMenuBarVisibility(!browserWindow.isMenuBarVisible());
@@ -127,16 +130,17 @@ export class View implements IViewService {
         click: async (_menuItem, browserWindow) => {
           // if item is called in popup window
           // modify menu bar in the popup window instead
-          if (browserWindow === undefined) return;
+          if (!isBrowserWindow(browserWindow)) return;
           const { isPopup } = await getFromRenderer<IBrowserViewMetaData>(MetaDataChannel.getViewMetaData, browserWindow);
           if (isPopup === true) {
             const contents = browserWindow.webContents;
             contents.zoomFactor = 1;
             return;
           }
+          // browserWindow above is for the main window's react UI
           // modify browser view in the main window
-          const mainWindow = this.windowService.get(WindowNames.main);
-          mainWindow?.getBrowserView()?.webContents?.setZoomFactor(1);
+          const view = await this.getActiveBrowserView();
+          view?.webContents?.setZoomFactor?.(1);
         },
         enabled: hasWorkspaces,
       },
@@ -146,7 +150,8 @@ export class View implements IViewService {
         click: async (_menuItem, browserWindow) => {
           // if item is called in popup window
           // modify menu bar in the popup window instead
-          if (browserWindow === undefined) return;
+          if (!isBrowserWindow(browserWindow)) return;
+          // TODO: on popup (secondary) window, browserWindow here seems can't get the correct webContent, so this never returns. And can't set zoom of popup.
           const { isPopup } = await getFromRenderer<IBrowserViewMetaData>(MetaDataChannel.getViewMetaData, browserWindow);
           if (isPopup === true) {
             const contents = browserWindow.webContents;
@@ -154,10 +159,8 @@ export class View implements IViewService {
             return;
           }
           // modify browser view in the main window
-          const mainWindow = this.windowService.get(WindowNames.main);
-          const webContent = mainWindow?.getBrowserView()?.webContents;
-          // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
-          webContent?.setZoomFactor(webContent.getZoomFactor() + 0.05);
+          const view = await this.getActiveBrowserView();
+          view?.webContents?.setZoomFactor?.(view.webContents.getZoomFactor() + 0.05);
         },
         enabled: hasWorkspaces,
       },
@@ -167,7 +170,7 @@ export class View implements IViewService {
         click: async (_menuItem, browserWindow) => {
           // if item is called in popup window
           // modify menu bar in the popup window instead
-          if (browserWindow === undefined) return;
+          if (!isBrowserWindow(browserWindow)) return;
           const { isPopup } = await getFromRenderer<IBrowserViewMetaData>(MetaDataChannel.getViewMetaData, browserWindow);
           if (isPopup === true) {
             const contents = browserWindow.webContents;
@@ -175,10 +178,8 @@ export class View implements IViewService {
             return;
           }
           // modify browser view in the main window
-          const mainWindow = this.windowService.get(WindowNames.main);
-          const webContent = mainWindow?.getBrowserView()?.webContents;
-          // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
-          webContent?.setZoomFactor(webContent.getZoomFactor() - 0.05);
+          const view = await this.getActiveBrowserView();
+          view?.webContents?.setZoomFactor?.(view.webContents.getZoomFactor() - 0.05);
         },
         enabled: hasWorkspaces,
       },
@@ -189,15 +190,14 @@ export class View implements IViewService {
         click: async (_menuItem, browserWindow) => {
           // if item is called in popup window
           // modify menu bar in the popup window instead
-          if (browserWindow === undefined) return;
+          if (!isBrowserWindow(browserWindow)) return;
           const { isPopup } = await getFromRenderer<IBrowserViewMetaData>(MetaDataChannel.getViewMetaData, browserWindow);
           if (isPopup === true) {
             browserWindow.webContents.reload();
             return;
           }
           // refresh the main window browser view's wiki content, instead of sidebar's react content
-          const mainWindow = this.windowService.get(WindowNames.main);
-          mainWindow?.getBrowserView()?.webContents?.reload();
+          await this.reloadActiveBrowserView();
         },
         enabled: hasWorkspaces,
       },
@@ -206,27 +206,29 @@ export class View implements IViewService {
   }
 
   /**
-   * Record<workspaceID, Record<windowName, BrowserView>>
+   * Record<workspaceID, Record<windowName, WebContentsView>>
    *
    * Each workspace can have several windows to render its view (main window and menu bar)
    */
-  private views: Record<string, Record<WindowNames, BrowserView> | undefined> = {};
+  private readonly views = new Map<string, Map<WindowNames, WebContentsView> | undefined>();
   public async getViewCount(): Promise<number> {
     // eslint-disable-next-line @typescript-eslint/return-await
     return await Promise.resolve(Object.keys(this.views).length);
   }
 
-  public getView = (workspaceID: string, windowName: WindowNames): BrowserView | undefined => this.views[workspaceID]?.[windowName];
-  public getAllViewOfWorkspace = (workspaceID: string): BrowserView[] => Object.values(this.views[workspaceID] ?? {});
-  public setView = (workspaceID: string, windowName: WindowNames, newView: BrowserView): void => {
-    const workspaceOwnedViews = this.views[workspaceID];
+  public getView(workspaceID: string, windowName: WindowNames): WebContentsView | undefined {
+    return this.views.get(workspaceID)?.get(windowName);
+  }
+
+  public setView(workspaceID: string, windowName: WindowNames, newView: WebContentsView): void {
+    const workspaceOwnedViews = this.views.get(workspaceID);
     if (workspaceOwnedViews === undefined) {
-      this.views[workspaceID] = { [windowName]: newView } as Record<WindowNames, BrowserView>;
+      this.views.set(workspaceID, new Map([[windowName, newView]]));
       this.setViewEventTarget.dispatchEvent(new Event(setViewEventName(workspaceID, windowName)));
     } else {
-      workspaceOwnedViews[windowName] = newView;
+      workspaceOwnedViews.set(windowName, newView);
     }
-  };
+  }
 
   private readonly setViewEventTarget = new EventTarget();
 
@@ -260,14 +262,14 @@ export class View implements IViewService {
     const sharedWebPreferences = await this.getSharedWebPreferences(workspace);
     const view = await this.createViewAddToWindow(workspace, browserWindow, sharedWebPreferences, windowName);
     this.setView(workspace.id, windowName, view);
-    await this.initializeWorkspaceViewHandlersAndLoad(workspace, browserWindow, view, sharedWebPreferences);
+    await this.initializeWorkspaceViewHandlersAndLoad(browserWindow, view, { workspace, sharedWebPreferences, windowName });
   }
 
   public async getSharedWebPreferences(workspace: IWorkspace) {
-    const preferences = await this.preferenceService.getPreferences();
+    const preferences = this.preferenceService.getPreferences();
     const { spellcheck } = preferences;
 
-    const sessionOfView = setupViewSession(workspace, preferences);
+    const sessionOfView = setupViewSession(workspace, preferences, () => this.preferenceService.getPreferences());
     const browserViewMetaData: IBrowserViewMetaData = { workspaceID: workspace.id };
     return {
       devTools: true,
@@ -287,37 +289,49 @@ export class View implements IViewService {
     } satisfies WebPreferences;
   }
 
-  public async createViewAddToWindow(workspace: IWorkspace, browserWindow: BrowserWindow, sharedWebPreferences: WebPreferences, windowName: WindowNames): Promise<BrowserView> {
-    // create a new BrowserView
-    const view = new BrowserView({
+  public async createViewAddToWindow(workspace: IWorkspace, browserWindow: BrowserWindow, sharedWebPreferences: WebPreferences, windowName: WindowNames): Promise<WebContentsView> {
+    // create a new WebContentsView
+    const view = new WebContentsView({
       webPreferences: sharedWebPreferences,
     });
     // background needs to explicitly set
-    // if not, by default, the background of BrowserView is transparent
+    // if not, by default, the background of WebContentsView is transparent
     // which would break the CSS of certain websites
     // even with dark mode, all major browsers
     // always use #FFF as default page background
     // https://github.com/atomery/webcatalog/issues/723
     // https://github.com/electron/electron/issues/16212
-    view.setBackgroundColor('#fafafa');
 
     // Handle audio & notification preferences
     if (this.shouldMuteAudio !== undefined) {
       view.webContents.audioMuted = this.shouldMuteAudio;
     }
-    if (workspace.active) {
-      browserWindow.setBrowserView(view);
+    if (workspace.active || windowName === WindowNames.secondary) {
+      browserWindow.contentView.addChildView(view);
       const contentSize = browserWindow.getContentSize();
-      view.setBounds(await getViewBounds(contentSize as [number, number], { windowName }));
-      view.setAutoResize({
-        width: true,
-        height: true,
-      });
+      const newViewBounds = await getViewBounds(contentSize as [number, number], { windowName });
+      view.setBounds(newViewBounds);
     }
+    // handle autoResize on user drag the window's edge https://github.com/electron/electron/issues/22174#issuecomment-2628884143
+    const debouncedOnResize = debounce(async () => {
+      logger.debug('debouncedOnResize');
+      if (browserWindow === undefined) return;
+      if ([WindowNames.secondary, WindowNames.main, WindowNames.menuBar].includes(windowName)) {
+        const contentSize = browserWindow.getContentSize();
+        const newViewBounds = await getViewBounds(contentSize as [number, number], { windowName });
+        view.setBounds(newViewBounds);
+      }
+    }, 200);
+    browserWindow.on('resize', debouncedOnResize);
     return view;
   }
 
-  public async initializeWorkspaceViewHandlersAndLoad(workspace: IWorkspace, browserWindow: BrowserWindow, view: BrowserView, sharedWebPreferences: WebPreferences, uri?: string) {
+  public async initializeWorkspaceViewHandlersAndLoad(
+    browserWindow: BrowserWindow,
+    view: WebContentsView,
+    configs: { sharedWebPreferences: WebPreferences; uri?: string; windowName: WindowNames; workspace: IWorkspace },
+  ) {
+    const { sharedWebPreferences, uri, workspace, windowName } = configs;
     setupViewEventHandlers(view, browserWindow, {
       shouldPauseNotifications: this.shouldPauseNotifications,
       workspace,
@@ -325,18 +339,20 @@ export class View implements IViewService {
       loadInitialUrlWithCatch: async () => {
         await this.loadUrlForView(workspace, view, uri);
       },
+      windowName,
     });
     setupIpcServerRoutesHandlers(view, workspace.id);
     await this.loadUrlForView(workspace, view, uri);
   }
 
-  public async loadUrlForView(workspace: IWorkspace, view: BrowserView, uri?: string): Promise<void> {
-    const { rememberLastPageVisited } = await this.preferenceService.getPreferences();
+  public async loadUrlForView(workspace: IWorkspace, view: WebContentsView, uri?: string): Promise<void> {
+    const { rememberLastPageVisited } = this.preferenceService.getPreferences();
     // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing, @typescript-eslint/strict-boolean-expressions
     const urlToLoad = uri || (rememberLastPageVisited ? workspace.lastUrl : workspace.homeUrl) || workspace.homeUrl || getDefaultTidGiUrl(workspace.id);
     try {
       logger.debug(
-        `loadUrlForView(): view.webContents: ${String(view.webContents)} urlToLoad: ${urlToLoad} for workspace ${workspace.name}`,
+        // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
+        `loadUrlForView(): view.webContents is ${view.webContents ? 'define' : 'undefined'} urlToLoad: ${urlToLoad} for workspace ${workspace.name}`,
         { stack: new Error('stack').stack?.replace('Error:', '') },
       );
       // if workspace failed to load, means nodejs server may have plugin error or something. Stop retrying, and show the error message in src/pages/Main/ErrorMessage.tsx
@@ -349,8 +365,6 @@ export class View implements IViewService {
         didFailLoadErrorMessage: null,
         isLoading: true,
       });
-      // DEBUG devTool
-      // view.webContents.openDevTools({ mode: 'detach' });
       await view.webContents.loadURL(urlToLoad);
       logger.debug('loadUrlForView() await loadURL() done');
       const unregisterContextMenu = await this.menuService.initContextMenuForWindowWebContents(view.webContents);
@@ -362,14 +376,14 @@ export class View implements IViewService {
     }
   }
 
-  public forEachView(functionToRun: (view: BrowserView, workspaceID: string, windowName: WindowNames) => unknown): void {
-    Object.keys(this.views).forEach((id) => {
-      const workspaceOwnedViews = this.views[id];
+  public forEachView(functionToRun: (view: WebContentsView, workspaceID: string, windowName: WindowNames) => unknown): void {
+    [...this.views.keys()].forEach((workspaceID) => {
+      const workspaceOwnedViews = this.views.get(workspaceID);
       if (workspaceOwnedViews !== undefined) {
-        (Object.keys(workspaceOwnedViews) as WindowNames[]).forEach((name) => {
-          const view = this.getView(id, name);
+        [...workspaceOwnedViews.keys()].forEach((windowName) => {
+          const view = workspaceOwnedViews.get(windowName);
           if (view !== undefined) {
-            functionToRun(view, id, name);
+            functionToRun(view, workspaceID, windowName);
           }
         });
       }
@@ -401,19 +415,16 @@ export class View implements IViewService {
         await this.addView(workspace, windowName);
       }
     } else {
-      browserWindow.setBrowserView(view);
-      logger.debug(`setActiveView() setBrowserView`);
+      browserWindow.contentView.addChildView(view);
+      logger.debug(`setActiveView() contentView.addChildView`);
       const contentSize = browserWindow.getContentSize();
       if (workspace !== undefined && (await this.workspaceService.workspaceDidFailLoad(workspace.id))) {
         view.setBounds(await getViewBounds(contentSize as [number, number], { findInPage: false, windowName }, 0, 0)); // hide browserView to show error message
       } else {
-        logger.debug(`setActiveView() contentSize ${JSON.stringify(contentSize)}`);
-        view.setBounds(await getViewBounds(contentSize as [number, number], { windowName }));
+        const newViewBounds = await getViewBounds(contentSize as [number, number], { windowName });
+        logger.debug(`setActiveView() contentSize ${JSON.stringify(newViewBounds)}`);
+        view.setBounds(newViewBounds);
       }
-      view.setAutoResize({
-        width: true,
-        height: true,
-      });
       // focus on webview
       // https://github.com/quanglam2807/webcatalog/issues/398
       view.webContents.focus();
@@ -421,41 +432,31 @@ export class View implements IViewService {
     }
   }
 
-  public removeView = (workspaceID: string, windowName: WindowNames): void => {
+  public removeView(workspaceID: string, windowName: WindowNames): void {
     logger.debug(`Remove view for workspaceID ${workspaceID} via ${new Error('stack').stack ?? 'no stack'}`);
     const view = this.getView(workspaceID, windowName);
     const browserWindow = this.windowService.get(windowName);
     if (view !== undefined && browserWindow !== undefined) {
-      void session.fromPartition(`persist:${workspaceID}`).clearStorageData();
       // stop find in page when switching workspaces
       view.webContents.stopFindInPage('clearSelection');
       view.webContents.send(WindowChannel.closeFindInPage);
 
-      // don't set activate browserView to null here, the "current browser view" may point to other workspace's view now, it will close other workspace's view when switching workspaces.
-      // eslint-disable-next-line unicorn/no-null
-      // browserWindow.setBrowserView(null);
-      browserWindow.removeBrowserView(view);
-
-      // currently use workaround https://github.com/electron/electron/issues/10096
-      // @ts-expect-error Property 'destroy' does not exist on type 'WebContents'.ts(2339)
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-      view.webContents.destroy();
+      // don't clear contentView here `browserWindow.contentView.children = [];`, the "current contentView" may point to other workspace's view now, it will close other workspace's view when switching workspaces.
+      browserWindow.contentView.removeChildView(view);
     } else {
       logger.error(`removeView() view or browserWindow is undefined for workspaceID ${workspaceID} windowName ${windowName}, not destroying view properly.`);
     }
-    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-    delete this.views[workspaceID]![windowName];
-  };
+  }
 
-  public removeAllViewOfWorkspace = (workspaceID: string): void => {
-    const views = this.views[workspaceID];
+  public removeAllViewOfWorkspace(workspaceID: string): void {
+    const views = this.views.get(workspaceID);
     if (views !== undefined) {
-      Object.keys(views).forEach((name) => {
-        this.removeView(workspaceID, name as WindowNames);
+      [...views.keys()].forEach((windowName) => {
+        this.removeView(workspaceID, windowName);
       });
+      views.clear();
     }
-    this.views[workspaceID] = undefined;
-  };
+  }
 
   public setViewsAudioPref = (_shouldMuteAudio?: boolean): void => {
     if (_shouldMuteAudio !== undefined) {
@@ -529,10 +530,10 @@ export class View implements IViewService {
     return view.webContents.getURL();
   }
 
-  public async getActiveBrowserView(): Promise<BrowserView | undefined> {
+  public async getActiveBrowserView(): Promise<WebContentsView | undefined> {
     const workspace = await this.workspaceService.getActiveWorkspace();
-    const isMenubarOpen = await this.windowService.isMenubarOpen();
     if (workspace !== undefined) {
+      const isMenubarOpen = await this.windowService.isMenubarOpen();
       if (isMenubarOpen) {
         return this.getView(workspace.id, WindowNames.menuBar);
       } else {
@@ -541,7 +542,7 @@ export class View implements IViewService {
     }
   }
 
-  public async getActiveBrowserViews(): Promise<Array<BrowserView | undefined>> {
+  public async getActiveBrowserViews(): Promise<Array<WebContentsView | undefined>> {
     const workspace = await this.workspaceService.getActiveWorkspace();
     if (workspace !== undefined) {
       return [this.getView(workspace.id, WindowNames.main), this.getView(workspace.id, WindowNames.menuBar)];
@@ -563,16 +564,18 @@ export class View implements IViewService {
     });
   }
 
-  public realignActiveView = async (browserWindow: BrowserWindow, activeId: string, isRetry?: boolean): Promise<void> => {
-    const view = browserWindow.getBrowserView();
-    if (view?.webContents !== null && view?.webContents !== undefined) {
+  public async realignActiveView(browserWindow: BrowserWindow, activeId: string, windowName: WindowNames, isRetry?: boolean): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression
+    const view = this.getView(activeId, windowName);
+    if (view?.webContents) {
       const contentSize = browserWindow.getContentSize();
       if (await this.workspaceService.workspaceDidFailLoad(activeId)) {
         logger.warn(`realignActiveView() hide because didFailLoad`);
-        await this.hideView(browserWindow);
+        await this.hideView(browserWindow, windowName, activeId);
       } else {
-        logger.debug(`realignActiveView() contentSize set to ${JSON.stringify(contentSize)}`);
-        view?.setBounds(await getViewBounds(contentSize as [number, number]));
+        const newViewBounds = await getViewBounds(contentSize as [number, number], { windowName });
+        logger.debug(`realignActiveView() contentSize set to ${JSON.stringify(newViewBounds)}`);
+        view?.setBounds(newViewBounds);
       }
     } else if (isRetry === true) {
       logger.error(
@@ -583,15 +586,47 @@ export class View implements IViewService {
     } else {
       // retry one time later if webContent is not ready yet
       logger.debug(`realignActiveView() retry one time later`);
-      setTimeout(() => void this.realignActiveView(browserWindow, activeId, true), 1000);
+      setTimeout(() => void this.realignActiveView(browserWindow, activeId, windowName, true), 1000);
     }
-  };
+  }
 
-  public async hideView(browserWindow: BrowserWindow): Promise<void> {
-    const view = browserWindow.getBrowserView();
-    if (view !== null) {
+  public async hideView(browserWindow: BrowserWindow, windowName: WindowNames, idToDeactivate: string): Promise<void> {
+    logger.debug('Hide view', { idToDeactivate, windowName });
+    if (!idToDeactivate) return;
+    const view = this.getView(idToDeactivate, windowName);
+    if (view) {
       const contentSize = browserWindow.getContentSize();
-      view?.setBounds(await getViewBounds(contentSize as [number, number], { findInPage: false }, 0, 0)); // hide browserView to show error message or other pages
+      // disable view features
+      view.webContents.stopFindInPage('clearSelection');
+      view.webContents.send(WindowChannel.closeFindInPage);
+      // make view small, hide browserView to show error message or other pages
+      view?.setBounds({
+        x: -contentSize[0],
+        y: -contentSize[1],
+        width: contentSize[0],
+        height: contentSize[1],
+      });
     }
+  }
+
+  public async getLoadedViewEnsure(workspaceID: string, windowName: WindowNames): Promise<WebContentsView> {
+    let view = this.getView(workspaceID, windowName);
+    if (view === undefined) {
+      // wait for view to be set
+      await new Promise<void>(resolve => {
+        this.setViewEventTarget.addEventListener(setViewEventName(workspaceID, windowName), () => {
+          resolve();
+        });
+      });
+    } else {
+      return view;
+    }
+    view = this.getView(workspaceID, windowName);
+    if (view === undefined) {
+      const errorMessage = `Still no view for ${workspaceID} in window ${windowName} after waiting.`;
+      logger.error(errorMessage, { function: 'getLoadedViewEnsure' });
+      throw new Error(errorMessage);
+    }
+    return view;
   }
 }

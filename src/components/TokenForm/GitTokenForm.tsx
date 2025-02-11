@@ -1,12 +1,13 @@
-import { useTranslation } from 'react-i18next';
-import styled from 'styled-components';
-
 import { Button, TextField } from '@mui/material';
+import useDebouncedCallback from 'beautiful-react-hooks/useDebouncedCallback';
+import { useTranslation } from 'react-i18next';
+import { styled } from 'styled-components';
 
 import { useUserInfoObservable } from '@services/auth/hooks';
-import { getServiceBranchTypes, getServiceEmailTypes, getServiceTokenTypes, getServiceUserNameTypes } from '@services/auth/interface';
+import { IUserInfos } from '@services/auth/interface';
 import { SupportedStorageServices } from '@services/types';
-import { useAuth } from './gitTokenHooks';
+import { useEffect, useState } from 'react';
+import { useAuth, useGetGithubUserInfoOnLoad } from './gitTokenHooks';
 
 const AuthingLoginButton = styled(Button)`
   width: 100%;
@@ -27,15 +28,35 @@ GitTokenInput.defaultProps = {
 };
 
 export function GitTokenForm(props: {
-  children?: JSX.Element | Array<JSX.Element | undefined | string>;
+  children?: React.JSX.Element | Array<React.JSX.Element | undefined | string>;
   storageService: SupportedStorageServices;
-}): JSX.Element {
+}): React.JSX.Element {
   const { children, storageService } = props;
   const { t } = useTranslation();
 
-  const [onClickLogin] = useAuth(storageService);
-
   const userInfo = useUserInfoObservable();
+  const [onClickLogin] = useAuth(storageService);
+  useGetGithubUserInfoOnLoad();
+  // local state for text inputs
+  const [token, tokenSetter] = useState<string | undefined>(undefined);
+  const [userName, userNameSetter] = useState<string | undefined>(undefined);
+  const [email, emailSetter] = useState<string | undefined>(undefined);
+  const [branch, branchSetter] = useState<string | undefined>(undefined);
+
+  const debouncedSet = useDebouncedCallback(
+    <K extends keyof IUserInfos>(key: K, value: IUserInfos[K]) => {
+      void window.service.auth.set(key, value);
+    },
+    [],
+    500,
+  );
+  useEffect(() => {
+    if (userInfo === undefined) return;
+    if (token === undefined) tokenSetter(userInfo[`${storageService}-token`]);
+    if (userName === undefined) userNameSetter(userInfo[`${storageService}-userName`]);
+    if (email === undefined) emailSetter(userInfo[`${storageService}-email`]);
+    if (branch === undefined) branchSetter(userInfo[`${storageService}-branch`]);
+  }, [branch, email, storageService, token, userInfo, userName]);
   if (userInfo === undefined) {
     return <div>{t('Loading')}</div>;
   }
@@ -45,30 +66,34 @@ export function GitTokenForm(props: {
       <GitTokenInput
         helperText={t('AddWorkspace.GitTokenDescription')}
         onChange={(event: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => {
-          void window.service.auth.set(`${storageService}-token`, event.target.value);
+          tokenSetter(event.target.value);
+          debouncedSet(`${storageService}-token`, event.target.value);
         }}
-        value={userInfo[getServiceTokenTypes(storageService)] ?? ''}
+        value={token}
       />
       <GitTokenInput
         helperText={t('AddWorkspace.GitUserNameDescription')}
         onChange={(event: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => {
-          void window.service.auth.set(`${storageService}-userName`, event.target.value);
+          userNameSetter(event.target.value);
+          debouncedSet(`${storageService}-userName`, event.target.value);
         }}
-        value={userInfo[getServiceUserNameTypes(storageService)] ?? ''}
+        value={userName}
       />
       <GitTokenInput
         helperText={t('AddWorkspace.GitEmailDescription')}
         onChange={(event: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => {
-          void window.service.auth.set(`${storageService}-email`, event.target.value);
+          emailSetter(event.target.value);
+          debouncedSet(`${storageService}-email`, event.target.value);
         }}
-        value={userInfo[getServiceEmailTypes(storageService)] ?? ''}
+        value={email}
       />
       <GitTokenInput
         helperText={t('AddWorkspace.GitDefaultBranchDescription')}
         onChange={(event: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => {
-          void window.service.auth.set(`${storageService}-branch`, event.target.value);
+          branchSetter(event.target.value);
+          debouncedSet(`${storageService}-branch`, event.target.value);
         }}
-        value={userInfo[getServiceBranchTypes(storageService)] ?? ''}
+        value={branch}
       />
       {children}
     </>

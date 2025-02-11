@@ -63,7 +63,7 @@ For example: `tiddlywiki`
 
 1. `npm i tiddlywiki`
 1. Add `ExternalsPlugin` in webpack.plugins.js (maybe optional for some deps, tiddlywiki needs this because its custom `require` can't require things that is bundled by webpack. `dugite` don't need this step)
-1. Add a `await fs.copy(path.join(projectRoot, 'node_modules/@tiddlygit/tiddlywiki')` in `scripts/afterPack.js` , to copy things to resource folder, that is outside of asar, so it can be used by the worker_thread in electron
+1. Add a `await fs.copy(path.join(projectRoot, 'node_modules/tiddlywiki')` in `scripts/afterPack.js` , to copy things to resource folder, that is outside of asar, so it can be used by the worker_thread in electron
 
 ## How to add plugin that only execute inside TidGi
 
@@ -82,11 +82,46 @@ Some library doesn't fit electron usage, we move their code to this repo and mod
 - [app-path](https://github.com/sindresorhus/app-path): Need to be installed, so we can copy its binary to the resource folder. This lib is used by `externalApp` below.
   - When not installed in package.json, when make release, forge will throw error `An unhandled rejection has occurred inside Forge: Error: ENOENT: no such file or directory, stat '/Users/linonetwo/Desktop/repo/TiddlyGit-Desktop/node_modules/app-path/main'`
 - [externalApp](https://github.com/desktop/desktop/blob/742b4c44c39d64d01048f1e85364d395432e3413/app/src/lib/editors/lookup.ts): This was used by [Github Desktop](https://github.com/desktop/desktop) to lookup the location of editors like VSCode, we use it in context menu to "open in default text editor"
-- [sqlite-vss](https://github.com/asg017/sqlite-vss): The path from its method `loadablePathResolver` maybe incorrect after electron app packaged. (It will be in `.webpack/main/index.js` in the dist folder instead of in `node_modules/sqlite-vss` folder.)
-  - Still need to install its `optionalDependencies` like `sqlite-vss-darwin-x64` in package.json
+
+## Don't upgrade these dependency
+
+### pure ESM
+
+Electron forge webpack don't support pure ESM yet
+
+- default-gateway
+- electron-unhandled
+- date-fns
+
+### Use electron forge's recommended version
+
+- @vercel/webpack-asset-relocator-loader
 
 ## Code Tour
 
 [FileProtocol](./features/FileProtocol.md)
 
 TBD
+
+## FAQ
+
+### `Uncaught ReferenceError: require is not defined`
+
+Or `Uncaught TypeError: Cannot read properties of undefined (reading 'call')    at __webpack_require__ (index.js:4317:33)`
+
+`pnpm run clean:cache` can fix this.
+
+### Electron download slow
+
+Add `.npmrc` on this project (sometimes the one at home folder is not working).
+
+```npmrc
+electron-mirror=https://registry.npmmirror.com/-/binary/electron/
+electron_custom_dir={{ version }}
+```
+
+and run `node node_modules/electron/install.js` manually.
+
+### Preparing native dependencies `Error: ENOENT: no such file or directory, stat 'xxx/node_modules/.pnpm/node_modules/@types/lodash-es'`
+
+run `rm 'xxx/node_modules/.pnpm/node_modules/@types/lodash-es'` fixes it. Maybe pnpm install gets interrupted, and make a file-like symlink, get recognized as binary file. Remove it will work.

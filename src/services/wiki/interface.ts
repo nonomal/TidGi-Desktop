@@ -28,7 +28,6 @@ export interface IWikiService {
   /** return true if wiki does existed and folder is a valid tiddlywiki folder, return error message (a string) if there is an error checking wiki existence */
   checkWikiExist(workspace: IWorkspace, options?: { shouldBeMainWiki?: boolean; showDialog?: boolean }): Promise<string | true>;
   checkWikiStartLock(wikiFolderLocation: string): boolean;
-  clearAllSyncIntervals(): void;
   cloneSubWiki(
     parentFolderLocation: string,
     wikiFolderName: string,
@@ -46,11 +45,17 @@ export interface IWikiService {
    * @param mainWikiToLink
    * @param onlyLink not creating new subwiki folder, just link existed subwiki folder to main wiki folder
    */
-  createSubWiki(parentFolderLocation: string, folderName: string, mainWikiPath: string, tagName?: string, onlyLink?: boolean): Promise<void>;
+  createSubWiki(parentFolderLocation: string, folderName: string, subWikiFolderName: string, mainWikiPath: string, tagName?: string, onlyLink?: boolean): Promise<void>;
   ensureWikiExist(wikiPath: string, shouldBeMainWiki: boolean): Promise<void>;
   extractWikiHTML(htmlWikiPath: string, saveWikiFolderPath: string): Promise<string | undefined>;
   getSubWikiPluginContent(mainWikiPath: string): Promise<ISubWikiPluginContent[]>;
-  getTiddlerText(workspace: IWorkspace, title: string): Promise<string | undefined>;
+  /**
+   * Get tiddler's absolute path. So you can open image or PDF in OS native viewer or some else usage like this, using `window?.service?.native?.openPath?.(filePath)`
+   * @returns absolute path like `'/Users/linonetwo/Desktop/repo/TiddlyGit-Desktop/wiki-dev/wiki/tiddlers/Index.tid'`
+   * @param homePath Workspace home path, used to locate wiki worker
+   * @param title tiddler title to open
+   */
+  getTiddlerFilePath(title: string, workspaceID?: string): Promise<string | undefined>;
   getWikiChangeObserver$(workspaceID: string): Observable<IChangedTiddlers>;
   getWikiErrorLogs(workspaceID: string, wikiName: string): Promise<{ content: string; filePath: string }>;
   /**
@@ -59,16 +64,8 @@ export interface IWikiService {
    */
   getWorker(workspaceID: string): ModuleThread<WikiWorker> | undefined;
   linkWiki(mainWikiPath: string, folderName: string, subWikiPath: string): Promise<void>;
-  /**
-   * Open image or PDF in OS native viewer or some else usage like this.
-   * @param homePath Workspace home path, used to locate wiki worker
-   * @param title tiddler title to open
-   */
-  openTiddlerInExternal(title: string, workspaceID: string): Promise<void>;
   packetHTMLFromWikiFolder(wikiFolderLocation: string, pathOfNewHTML: string): Promise<void>;
   removeWiki(wikiPath: string, mainWikiToUnLink?: string, onlyRemoveLink?: boolean): Promise<void>;
-  /** send tiddlywiki action message to current active wiki */
-  requestWikiSendActionMessage(actionMessage: string): Promise<void>;
   restartWiki(workspace: IWorkspace): Promise<void>;
   setAllWikiStartLockOff(): void;
   setWikiLanguage(workspaceID: string, tiddlywikiLanguageName: string): Promise<void>;
@@ -80,9 +77,12 @@ export interface IWikiService {
   startWiki(workspaceID: string, userName: string): Promise<void>;
   stopAllWiki(): Promise<void>;
   stopWiki(workspaceID: string): Promise<void>;
-  updateSubWikiPluginContent(mainWikiPath: string, newConfig?: IWorkspace, oldConfig?: IWorkspace): Promise<void>;
+  updateSubWikiPluginContent(mainWikiPath: string, subWikiPath: string, newConfig?: IWorkspace, oldConfig?: IWorkspace): Promise<void>;
   /**
    * Runs wiki related JS script in wiki page to control the wiki.
+   *
+   * Some data may not be available in browser, for example, getTiddlerText will return `null` for the first time, and trigger lazy loading, and return text on second call. In such case, you may want to use `wikiOperationInServer` instead.
+   * @example `await window.service.wiki.wikiOperationInBrowser('wiki-get-tiddler-text', window.meta().workspaceID, ['TiddlyWikiIconBlack.png'])`
    */
   wikiOperationInBrowser<OP extends keyof ISendWikiOperationsToBrowser>(
     operationType: OP,
@@ -105,7 +105,6 @@ export const WikiServiceIPCDescriptor = {
   properties: {
     callWikiIpcServerRoute: ProxyPropertyType.Function,
     checkWikiExist: ProxyPropertyType.Function,
-    clearAllSyncIntervals: ProxyPropertyType.Function,
     cloneSubWiki: ProxyPropertyType.Function,
     cloneWiki: ProxyPropertyType.Function,
     copyWikiTemplate: ProxyPropertyType.Function,
@@ -113,13 +112,11 @@ export const WikiServiceIPCDescriptor = {
     ensureWikiExist: ProxyPropertyType.Function,
     extractWikiHTML: ProxyPropertyType.Function,
     getSubWikiPluginContent: ProxyPropertyType.Function,
-    getTiddlerText: ProxyPropertyType.Function,
     getWikiErrorLogs: ProxyPropertyType.Function,
     linkWiki: ProxyPropertyType.Function,
-    openTiddlerInExternal: ProxyPropertyType.Function,
+    getTiddlerFilePath: ProxyPropertyType.Function,
     packetHTMLFromWikiFolder: ProxyPropertyType.Function,
     removeWiki: ProxyPropertyType.Function,
-    requestWikiSendActionMessage: ProxyPropertyType.Function,
     restartWiki: ProxyPropertyType.Function,
     setWikiLanguage: ProxyPropertyType.Function,
     startWiki: ProxyPropertyType.Function,

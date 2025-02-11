@@ -24,7 +24,7 @@ export interface IInitializeWorkspaceOptions {
 export interface IWorkspaceViewService {
   addViewForAllBrowserViews(workspace: IWorkspace): Promise<void>;
   /**
-   * Hide BrowserView, so page below it will show up.
+   * Hide WebContentsView, so page below it will show up.
    */
   clearActiveWorkspaceView(): Promise<void>;
   clearBrowsingData(): Promise<void>;
@@ -54,7 +54,6 @@ export interface IWorkspaceViewService {
    * Create a new separate window, and load wiki for a workspace.
    */
   openWorkspaceWindowWithView(workspace: IWorkspace, configs?: { uri?: string }): Promise<void>;
-  printTiddler(tiddlerName?: string | undefined): Promise<void>;
   realignActiveWorkspace(id?: string): Promise<void>;
   /**
    * Remove workspace metadata and its view (if it is started and have a browser view)
@@ -75,7 +74,7 @@ export interface IWorkspaceViewService {
   setWorkspaceView(workspaceID: string, workspaceOptions: IWorkspace): Promise<void>;
   setWorkspaceViews(workspaces: Record<string, IWorkspace>): Promise<void>;
   /** get view's current url, store into the workspace. Can provide a designated view to operate  */
-  updateLastUrl(workspaceID: string, view?: Electron.CrossProcessExports.BrowserView | undefined): Promise<void>;
+  updateLastUrl(workspaceID: string, view?: Electron.CrossProcessExports.WebContentsView | undefined): Promise<void>;
   wakeUpWorkspaceView(workspaceID: string): Promise<void>;
 }
 export const WorkspaceViewServiceIPCDescriptor = {
@@ -89,7 +88,6 @@ export const WorkspaceViewServiceIPCDescriptor = {
     loadURL: ProxyPropertyType.Function,
     openUrlInWorkspace: ProxyPropertyType.Function,
     openWorkspaceWindowWithView: ProxyPropertyType.Function,
-    printTiddler: ProxyPropertyType.Function,
     realignActiveWorkspace: ProxyPropertyType.Function,
     removeWorkspaceView: ProxyPropertyType.Function,
     restartAllWorkspaceView: ProxyPropertyType.Function,

@@ -1,4 +1,4 @@
-import { BrowserView } from 'electron';
+import { WebContentsView } from 'electron';
 
 import { IAuthenticationService } from '@services/auth/interface';
 import { container } from '@services/container';
@@ -8,7 +8,7 @@ import { IWikiService } from '@services/wiki/interface';
 import { IWorkspaceService } from '@services/workspaces/interface';
 import type { ITiddlerFields } from 'tiddlywiki';
 
-export function setupIpcServerRoutesHandlers(view: BrowserView, workspaceID: string) {
+export function setupIpcServerRoutesHandlers(view: WebContentsView, workspaceID: string) {
   const workspaceService = container.get<IWorkspaceService>(serviceIdentifier.Workspace);
   const authService = container.get<IAuthenticationService>(serviceIdentifier.Authentication);
   const wikiService = container.get<IWikiService>(serviceIdentifier.Wiki);
@@ -38,7 +38,13 @@ export function setupIpcServerRoutesHandlers(view: BrowserView, workspaceID: str
       path: /^\/recipes\/default\/tiddlers\/(.+)$/,
       name: 'getTiddlersJSON',
       handler: async (request: GlobalRequest, workspaceIDFromHost: string, _parameters: RegExpMatchArray | null) =>
-        await wikiService.callWikiIpcServerRoute(workspaceIDFromHost, 'getTiddlersJSON', new URL(request.url).searchParams.get('filter') ?? ''),
+        await wikiService.callWikiIpcServerRoute(
+          workspaceIDFromHost,
+          'getTiddlersJSON',
+          new URL(request.url).searchParams.get('filter') ?? '',
+          // Allow send empty string to disable omit. Otherwise text field will be omitted.
+          new URL(request.url).searchParams.get('exclude')?.split?.(' ') ?? undefined,
+        ),
     },
     {
       method: 'PUT',
@@ -67,8 +73,22 @@ export function setupIpcServerRoutesHandlers(view: BrowserView, workspaceID: str
       method: 'GET',
       path: /^\/files\/(.+)$/,
       name: 'getFile',
-      handler: async (_request: GlobalRequest, workspaceIDFromHost: string, parameters: RegExpMatchArray | null) =>
-        await wikiService.callWikiIpcServerRoute(workspaceIDFromHost, 'getFile', parameters?.[1] ?? ''),
+      handler: async (_request: GlobalRequest, workspaceIDFromHost: string, parameters: RegExpMatchArray | null) => {
+        /**
+         * ```
+         * parameters [
+            '/files/%E4%B8%9C%E5%90%B413%E5%B2%81%E7%99%BB%E9%95%BF%E5%9F%8E%E7%85%A7.JPG',
+            '%E4%B8%9C%E5%90%B413%E5%B2%81%E7%99%BB%E9%95%BF%E5%9F%8E%E7%85%A7.JPG',
+            index: 0,
+            input: '/files/%E4%B8%9C%E5%90%B413%E5%B2%81%E7%99%BB%E9%95%BF%E5%9F%8E%E7%85%A7.JPG',
+            groups: undefined
+          ]
+          ```
+
+          Decode Chinese similar to src/services/view/setupViewFileProtocol.ts
+         */
+        return await wikiService.callWikiIpcServerRoute(workspaceIDFromHost, 'getFile', decodeURI(parameters?.[1] ?? ''));
+      },
     },
     {
       method: 'GET',
@@ -92,8 +112,12 @@ export function setupIpcServerRoutesHandlers(view: BrowserView, workspaceID: str
     const parsedUrl = new URL(request.url);
     // parsedUrl.host is the actual workspaceID, sometimes we get workspaceID1 here, but in the handler callback we found `workspaceID` from the `setupIpcServerRoutesHandlers` param is workspaceID2, seems `view.webContents.session.protocol.handle` will mistakenly handle request from other views.
     const workspaceIDFromHost = parsedUrl.host;
-    if (workspaceIDFromHost !== workspaceID) {
-      logger.warn(`setupIpcServerRoutesHandlers.handlerCallback: workspaceIDFromHost !== workspaceID`, { workspaceIDFromHost, workspaceID });
+    // When using `standard: true` in `registerSchemesAsPrivileged`, workspaceIDFromHost is lower cased, and cause this
+    if (workspaceIDFromHost !== workspaceID.toLowerCase()) {
+      logger.warn(`setupIpcServerRoutesHandlers.handlerCallback: workspaceIDFromHost !== workspaceID`, {
+        workspaceIDFromHost,
+        workspaceID,
+      });
     }
     // Iterate through methods to find matching routes
     try {
@@ -103,7 +127,7 @@ export function setupIpcServerRoutesHandlers(view: BrowserView, workspaceID: str
           const parameters = parsedUrl.pathname.match(route.path);
           logger.debug(`setupIpcServerRoutesHandlers.handlerCallback: started`, { name: route.name, parsedUrl, parameters });
           // Call the handler of the route to process the request and return the result
-          const responseData = await route.handler(request, workspaceIDFromHost, parameters);
+          const responseData = await route.handler(request, workspaceID, parameters);
           if (responseData === undefined) {
             const statusText = `setupIpcServerRoutesHandlers.handlerCallback: responseData is undefined ${request.url}`;
             logger.warn(statusText);
@@ -116,7 +140,7 @@ export function setupIpcServerRoutesHandlers(view: BrowserView, workspaceID: str
     } catch (error) {
       return new Response(undefined, { status: 500, statusText: `${(error as Error).message} ${(error as Error).stack ?? ''}` });
     }
-    const statusText = `setupIpcServerRoutesHandlers.handlerCallback: tidgi protocol is not handled ${request.url}`;
+    const statusText = `setupIpcServerRoutesHandlers.handlerCallback: tidgi protocol 404 ${request.url}`;
     logger.warn(statusText);
     return new Response(undefined, { status: 404, statusText });
   }

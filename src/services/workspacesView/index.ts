@@ -1,34 +1,33 @@
+/* eslint-disable @typescript-eslint/strict-boolean-expressions */
+/* eslint-disable @typescript-eslint/promise-function-async */
 /* eslint-disable unicorn/no-null */
 /* eslint-disable @typescript-eslint/require-await */
 /* eslint-disable unicorn/consistent-destructuring */
 import { mapSeries } from 'bluebird';
-import { app, clipboard, dialog, session } from 'electron';
+import { app, dialog, session } from 'electron';
 import { injectable } from 'inversify';
 
-import { DEFAULT_DOWNLOADS_PATH } from '@/constants/appPaths';
-import { MetaDataChannel, WikiChannel } from '@/constants/channels';
-import { isHtmlWiki, wikiHtmlExtensions } from '@/constants/fileNames';
+import { WikiChannel } from '@/constants/channels';
 import { tiddlywikiLanguagesMap } from '@/constants/languages';
 import { WikiCreationMethod } from '@/constants/wikiCreation';
 import type { IAuthenticationService } from '@services/auth/interface';
 import { lazyInject } from '@services/container';
-import { IDatabaseService } from '@services/database/interface';
-import type { IGitService } from '@services/git/interface';
-import getFromRenderer from '@services/libs/getFromRenderer';
 import { i18n } from '@services/libs/i18n';
 import { logger } from '@services/libs/log';
 import type { IMenuService } from '@services/menu/interface';
-import { INativeService } from '@services/native/interface';
 import type { IPreferenceService } from '@services/preferences/interface';
 import serviceIdentifier from '@services/serviceIdentifier';
 import { SupportedStorageServices } from '@services/types';
 import type { IViewService } from '@services/view/interface';
 import type { IWikiService } from '@services/wiki/interface';
 import type { IWindowService } from '@services/windows/interface';
-import { IBrowserViewMetaData, WindowNames } from '@services/windows/WindowProperties';
+import { WindowNames } from '@services/windows/WindowProperties';
 import type { IWorkspace, IWorkspaceService } from '@services/workspaces/interface';
-import path from 'path';
+
+import { DELAY_MENU_REGISTER } from '@/constants/parameters';
+import { ISyncService } from '@services/sync/interface';
 import type { IInitializeWorkspaceOptions, IWorkspaceViewService } from './interface';
+import { registerMenu } from './registerMenu';
 
 @injectable()
 export class WorkspaceView implements IWorkspaceViewService {
@@ -37,12 +36,6 @@ export class WorkspaceView implements IWorkspaceViewService {
 
   @lazyInject(serviceIdentifier.View)
   private readonly viewService!: IViewService;
-
-  @lazyInject(serviceIdentifier.Git)
-  private readonly gitService!: IGitService;
-
-  @lazyInject(serviceIdentifier.Database)
-  private readonly databaseService!: IDatabaseService;
 
   @lazyInject(serviceIdentifier.Wiki)
   private readonly wikiService!: IWikiService;
@@ -59,14 +52,13 @@ export class WorkspaceView implements IWorkspaceViewService {
   @lazyInject(serviceIdentifier.MenuService)
   private readonly menuService!: IMenuService;
 
-  @lazyInject(serviceIdentifier.WorkspaceView)
-  private readonly workspaceViewService!: IWorkspaceViewService;
-
-  @lazyInject(serviceIdentifier.NativeService)
-  private readonly nativeService!: INativeService;
+  @lazyInject(serviceIdentifier.Sync)
+  private readonly syncService!: ISyncService;
 
   constructor() {
-    void this.registerMenu();
+    setTimeout(() => {
+      void registerMenu();
+    }, DELAY_MENU_REGISTER);
   }
 
   public async initializeAllWorkspaceView(): Promise<void> {
@@ -114,8 +106,11 @@ export class WorkspaceView implements IWorkspaceViewService {
       }
     }
     const syncGitWhenInitializeWorkspaceView = async () => {
-      const { wikiFolderLocation, gitUrl: githubRepoUrl, storageService } = workspace;
-
+      const { wikiFolderLocation, gitUrl: githubRepoUrl, storageService, isSubWiki } = workspace;
+      // we are using syncWikiIfNeeded that handles recursive sync for all subwiki, so we only need to pass main wiki to it in this method.
+      if (isSubWiki) {
+        return;
+      }
       // get sync process ready
       try {
         if (workspace.syncOnStartup && storageService !== SupportedStorageServices.local && syncImmediately) {
@@ -128,7 +123,11 @@ export class WorkspaceView implements IWorkspaceViewService {
             throw new Error(i18n.t(`Error.MainWindowMissing`));
           }
           const userInfo = await this.authService.getStorageServiceUserInfo(workspace.storageService);
-          if (userInfo === undefined) {
+          // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
+          if (userInfo?.accessToken) {
+            // sync in non-blocking way
+            void this.syncService.syncWikiIfNeeded(workspace);
+          } else {
             // user not login into Github or something else
             void dialog.showMessageBox(mainWindow, {
               title: i18n.t('Dialog.StorageServiceUserInfoNoFound'),
@@ -136,14 +135,6 @@ export class WorkspaceView implements IWorkspaceViewService {
               buttons: ['OK'],
               cancelId: 0,
               defaultId: 0,
-            });
-          } else {
-            // sync in non-blocking way
-            void this.gitService.commitAndSync(workspace, { remoteUrl: githubRepoUrl, userInfo }).then(async (hasChanges) => {
-              if (hasChanges) {
-                await this.workspaceViewService.restartWorkspaceViewService(workspace.id);
-                await this.viewService.reloadViewsWebContents(workspace.id);
-              }
             });
           }
         }
@@ -153,7 +144,7 @@ export class WorkspaceView implements IWorkspaceViewService {
     };
 
     const addViewWhenInitializeWorkspaceView = async (): Promise<void> => {
-      // adding BrowserView for each workspace
+      // adding WebContentsView for each workspace
       // skip view initialize if this is a sub wiki
       if (workspace.isSubWiki) {
         return;
@@ -183,19 +174,11 @@ export class WorkspaceView implements IWorkspaceViewService {
         }
       }
     };
-    const initDatabaseWhenInitializeWorkspaceView = async (): Promise<void> => {
-      if (workspace.isSubWiki) {
-        return;
-      }
-      // after all init finished, create cache database if there is no one
-      await this.databaseService.initializeForWorkspace(workspace.id);
-    };
 
     logger.debug(`initializeWorkspaceView() calling wikiStartup()`);
     await Promise.all([
       this.wikiService.wikiStartup(workspace),
       addViewWhenInitializeWorkspaceView(),
-      initDatabaseWhenInitializeWorkspaceView(),
     ]);
     void syncGitWhenInitializeWorkspaceView();
   }
@@ -216,25 +199,25 @@ export class WorkspaceView implements IWorkspaceViewService {
       uriToOpen,
       function: 'openWorkspaceWindowWithView',
     });
-    const browserWindow = await this.windowService.open(WindowNames.secondary, undefined, undefined, true);
+    const browserWindow = await this.windowService.open(WindowNames.secondary, undefined, { multiple: true }, true);
     const sharedWebPreferences = await this.viewService.getSharedWebPreferences(workspace);
     const view = await this.viewService.createViewAddToWindow(workspace, browserWindow, sharedWebPreferences, WindowNames.secondary);
     logger.debug('View created in new window.', { id: workspace.id, uriToOpen, function: 'openWorkspaceWindowWithView' });
-    await this.viewService.initializeWorkspaceViewHandlersAndLoad(workspace, browserWindow, view, sharedWebPreferences, uriToOpen);
+    await this.viewService.initializeWorkspaceViewHandlersAndLoad(browserWindow, view, { workspace, sharedWebPreferences, windowName: WindowNames.secondary, uri: uriToOpen });
   }
 
   public async updateLastUrl(
     workspaceID: string,
-    view: Electron.CrossProcessExports.BrowserView | undefined = this.viewService.getView(workspaceID, WindowNames.main),
+    view: Electron.CrossProcessExports.WebContentsView | undefined = this.viewService.getView(workspaceID, WindowNames.main),
   ): Promise<void> {
-    if (view === undefined) {
-      logger.warn(`Can't update lastUrl for workspace ${workspaceID}, view is not found`);
-    } else {
+    if (view?.webContents) {
       const currentUrl = view.webContents.getURL();
-      logger.debug(`Updating lastUrl for workspace ${workspaceID} to ${currentUrl}`);
+      logger.debug(`updateLastUrl() Updating lastUrl for workspace ${workspaceID} to ${currentUrl}`);
       await this.workspaceService.update(workspaceID, {
         lastUrl: currentUrl,
       });
+    } else {
+      logger.warn(`Can't update lastUrl for workspace ${workspaceID}, view is not found`);
     }
   }
 
@@ -249,91 +232,6 @@ export class WorkspaceView implements IWorkspaceViewService {
         await this.loadURL(url, activeWorkspace.id);
       }
     }
-  }
-
-  private async registerMenu(): Promise<void> {
-    const hasWorkspaces = async (): Promise<boolean> => (await this.workspaceService.countWorkspaces()) > 0;
-
-    await this.menuService.insertMenu('Workspaces', [
-      {
-        label: () => i18n.t('Menu.DeveloperToolsActiveWorkspace'),
-        accelerator: 'CmdOrCtrl+Option+I',
-        click: async () => (await this.viewService.getActiveBrowserView())?.webContents?.openDevTools(),
-        enabled: hasWorkspaces,
-      },
-    ]);
-    await this.menuService.insertMenu('Wiki', [
-      {
-        label: () => i18n.t('Menu.PrintPage'),
-        click: async () => {
-          const browserViews = await this.viewService.getActiveBrowserViews();
-          browserViews.forEach((browserView) => {
-            browserView?.webContents?.print();
-          });
-        },
-        enabled: hasWorkspaces,
-      },
-      {
-        label: () => i18n.t('Menu.PrintActiveTiddler'),
-        accelerator: 'CmdOrCtrl+Alt+Shift+P',
-        click: async () => {
-          await this.printTiddler();
-        },
-        enabled: hasWorkspaces,
-      },
-      {
-        label: () => i18n.t('Menu.ExportWholeWikiHTML'),
-        click: async () => {
-          const activeWorkspace = await this.workspaceService.getActiveWorkspace();
-          if (activeWorkspace === undefined) {
-            logger.error('Can not export whole wiki, activeWorkspace is undefined');
-            return;
-          }
-          const pathOfNewHTML = await this.nativeService.pickDirectory(DEFAULT_DOWNLOADS_PATH, {
-            allowOpenFile: true,
-            filters: [{ name: 'HTML', extensions: wikiHtmlExtensions }],
-          });
-          if (pathOfNewHTML.length > 0) {
-            const fileName = isHtmlWiki(pathOfNewHTML[0]) ? pathOfNewHTML[0] : path.join(pathOfNewHTML[0], `${activeWorkspace.name}.html`);
-            await this.wikiService.packetHTMLFromWikiFolder(activeWorkspace.wikiFolderLocation, fileName);
-          } else {
-            logger.error("Can not export whole wiki, pickDirectory's pathOfNewHTML is empty");
-          }
-        },
-        enabled: hasWorkspaces,
-      },
-      { type: 'separator' },
-      {
-        label: () => i18n.t('ContextMenu.CopyLink'),
-        accelerator: 'CmdOrCtrl+L',
-        click: async (_menuItem, browserWindow) => {
-          // if back is called in popup window
-          // copy the popup window URL instead
-          if (browserWindow !== undefined) {
-            const { isPopup } = await getFromRenderer<IBrowserViewMetaData>(MetaDataChannel.getViewMetaData, browserWindow);
-            if (isPopup === true) {
-              const url = browserWindow.webContents.getURL();
-              clipboard.writeText(url);
-              return;
-            }
-          }
-          const mainWindow = this.windowService.get(WindowNames.main);
-          const url = mainWindow?.getBrowserView()?.webContents?.getURL();
-          if (typeof url === 'string') {
-            clipboard.writeText(url);
-          }
-        },
-      },
-    ]);
-  }
-
-  public async printTiddler(tiddlerName?: string): Promise<void> {
-    const browserViews = await this.viewService.getActiveBrowserViews();
-    browserViews.forEach((browserView) => {
-      if (browserView !== undefined) {
-        browserView.webContents.send(WikiChannel.printTiddler, tiddlerName);
-      }
-    });
   }
 
   public async setWorkspaceView(workspaceID: string, workspaceOptions: IWorkspace): Promise<void> {
@@ -351,13 +249,11 @@ export class WorkspaceView implements IWorkspaceViewService {
   public async wakeUpWorkspaceView(workspaceID: string): Promise<void> {
     const workspace = await this.workspaceService.get(workspaceID);
     if (workspace !== undefined) {
-      // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
-      const userName = await this.authService.getUserName(workspace);
-      await this.workspaceService.update(workspaceID, {
-        hibernated: false,
-      });
       await Promise.all([
-        this.wikiService.startWiki(workspaceID, userName),
+        this.workspaceService.update(workspaceID, {
+          hibernated: false,
+        }),
+        this.authService.getUserName(workspace).then(userName => this.wikiService.startWiki(workspaceID, userName)),
         this.addViewForAllBrowserViews(workspace),
       ]);
     }
@@ -373,13 +269,13 @@ export class WorkspaceView implements IWorkspaceViewService {
           hibernated: true,
         }),
       ]);
-      this.viewService.removeAllViewOfWorkspace(workspaceID);
+      this.viewService.removeAllViewOfWorkspace(workspaceID, true);
     }
   }
 
   public async setActiveWorkspaceView(nextWorkspaceID: string): Promise<void> {
-    const oldActiveWorkspace = await this.workspaceService.getActiveWorkspace();
-    const newWorkspace = await this.workspaceService.get(nextWorkspaceID);
+    logger.debug('setActiveWorkspaceView', { nextWorkspaceID });
+    const [oldActiveWorkspace, newWorkspace] = await Promise.all([this.workspaceService.getActiveWorkspace(), this.workspaceService.get(nextWorkspaceID)]);
     if (newWorkspace === undefined) {
       throw new Error(`Workspace id ${nextWorkspaceID} does not exist. When setActiveWorkspaceView().`);
     }
@@ -410,9 +306,12 @@ export class WorkspaceView implements IWorkspaceViewService {
       logger.error(`Error while setActiveWorkspaceView(): ${(error as Error).message}`, error);
       throw error;
     }
-    // if we are switching to a new workspace, we hibernate old view, and activate new view
-    if (oldActiveWorkspace !== undefined && oldActiveWorkspace.id !== nextWorkspaceID && oldActiveWorkspace.hibernateWhenUnused) {
-      await this.hibernateWorkspaceView(oldActiveWorkspace.id);
+    // if we are switching to a new workspace, we hide and/or hibernate old view, and activate new view
+    if (oldActiveWorkspace !== undefined && oldActiveWorkspace.id !== nextWorkspaceID) {
+      await this.hideWorkspaceView(oldActiveWorkspace.id);
+      if (oldActiveWorkspace.hibernateWhenUnused) {
+        await this.hibernateWorkspaceView(oldActiveWorkspace.id);
+      }
     }
   }
 
@@ -428,7 +327,7 @@ export class WorkspaceView implements IWorkspaceViewService {
       return;
     }
     try {
-      await this.hideWorkspaceView();
+      await this.hideWorkspaceView(activeWorkspace.id);
     } catch (error) {
       logger.error(`Error while setActiveWorkspaceView(): ${(error as Error).message}`, error);
       throw error;
@@ -439,12 +338,11 @@ export class WorkspaceView implements IWorkspaceViewService {
   }
 
   public async removeWorkspaceView(workspaceID: string): Promise<void> {
+    this.viewService.removeAllViewOfWorkspace(workspaceID, true);
     const mainWindow = this.windowService.get(WindowNames.main);
     // if there's only one workspace left, clear all
     if ((await this.workspaceService.countWorkspaces()) === 1) {
       if (mainWindow !== undefined) {
-        // eslint-disable-next-line unicorn/no-null
-        mainWindow.setBrowserView(null);
         mainWindow.setTitle(app.name);
       }
     } else if ((await this.workspaceService.countWorkspaces()) > 1 && (await this.workspaceService.get(workspaceID))?.active === true) {
@@ -453,10 +351,6 @@ export class WorkspaceView implements IWorkspaceViewService {
         await this.setActiveWorkspaceView(previousWorkspace.id);
       }
     }
-
-    await this.workspaceService.remove(workspaceID);
-    // TODO: seems a window can only have a browser view, and is shared between workspaces
-    // this.viewService.removeAllViewOfWorkspace(workspaceID);
   }
 
   public async restartWorkspaceViewService(id?: string): Promise<void> {
@@ -466,11 +360,16 @@ export class WorkspaceView implements IWorkspaceViewService {
       return;
     }
     if (workspaceToRestart.isSubWiki) {
+      const mainWikiIDToRestart = workspaceToRestart.mainWikiID;
+      if (mainWikiIDToRestart) {
+        await this.restartWorkspaceViewService(mainWikiIDToRestart);
+      }
       return;
     }
     logger.info(`Restarting workspace ${workspaceToRestart.id}`);
     await this.updateLastUrl(workspaceToRestart.id);
-    await this.workspaceService.updateMetaData(workspaceToRestart.id, { didFailLoadErrorMessage: null, isLoading: false });
+    // start restarting. Set isLoading to false, and it will be set by some callback elsewhere to true.
+    await this.workspaceService.updateMetaData(workspaceToRestart.id, { didFailLoadErrorMessage: null, isLoading: false, isRestarting: true });
     await this.wikiService.stopWiki(workspaceToRestart.id);
     await this.initializeWorkspaceView(workspaceToRestart, { syncImmediately: false });
     if (await this.workspaceService.workspaceDidFailLoad(workspaceToRestart.id)) {
@@ -479,6 +378,7 @@ export class WorkspaceView implements IWorkspaceViewService {
     }
     await this.viewService.reloadViewsWebContents(workspaceToRestart.id);
     await this.wikiService.wikiOperationInBrowser(WikiChannel.generalNotification, workspaceToRestart.id, [i18n.t('ContextMenu.RestartServiceComplete')]);
+    await this.workspaceService.updateMetaData(workspaceToRestart.id, { isRestarting: false });
   }
 
   public async restartAllWorkspaceView(): Promise<void> {
@@ -534,16 +434,16 @@ export class WorkspaceView implements IWorkspaceViewService {
     const activeWorkspace = await this.workspaceService.getActiveWorkspace();
     const activeWorkspaceID = id ?? activeWorkspace?.id;
     if (mainWindow !== undefined && activeWorkspaceID !== undefined) {
-      const browserView = mainWindow.getBrowserView();
-      if (browserView !== null) {
-        browserView.webContents.focus();
-        await browserView.webContents.loadURL(url);
+      const view = this.viewService.getView(activeWorkspaceID, WindowNames.main);
+      if (view?.webContents) {
+        view.webContents.focus();
+        await view.webContents.loadURL(url);
       }
     }
   }
 
   /**
-   * Seems this is for relocating BrowserView in the electron window
+   * Seems this is for relocating WebContentsView in the electron window
    */
   public async realignActiveWorkspace(id?: string): Promise<void> {
     // this function only call browserView.setBounds
@@ -561,60 +461,61 @@ export class WorkspaceView implements IWorkspaceViewService {
   private async realignActiveWorkspaceView(id?: string): Promise<void> {
     const workspaceToRealign = id === undefined ? await this.workspaceService.getActiveWorkspace() : await this.workspaceService.get(id);
     logger.debug(`realignActiveWorkspaceView() activeWorkspace.id: ${workspaceToRealign?.id ?? 'undefined'}`, { stack: new Error('stack').stack?.replace('Error:', '') });
+    if (workspaceToRealign?.isSubWiki) {
+      logger.debug(`realignActiveWorkspaceView() skip because ${workspaceToRealign.id} is a subwiki. Realign main wiki instead.`);
+      if (workspaceToRealign.mainWikiID) {
+        await this.realignActiveWorkspaceView(workspaceToRealign.mainWikiID);
+      }
+      return;
+    }
     const mainWindow = this.windowService.get(WindowNames.main);
     const menuBarWindow = this.windowService.get(WindowNames.menuBar);
-    const mainBrowserViewWebContent = mainWindow?.getBrowserView()?.webContents;
-    const menuBarBrowserViewWebContent = menuBarWindow?.getBrowserView()?.webContents;
     /* eslint-disable @typescript-eslint/strict-boolean-expressions */
     logger.info(
-      `realignActiveWorkspaceView: id ${workspaceToRealign?.id ?? 'undefined'} mainWindow: ${String(!!mainBrowserViewWebContent)} menuBarWindow: ${
-        String(
-          !!menuBarBrowserViewWebContent,
-        )
-      }`,
+      `realignActiveWorkspaceView: id ${workspaceToRealign?.id ?? 'undefined'}`,
     );
     if (workspaceToRealign === undefined) {
       logger.warn('realignActiveWorkspaceView: no active workspace');
-    } else {
-      if (mainWindow === undefined && menuBarWindow === undefined) {
-        logger.warn('realignActiveWorkspaceView: no active window');
-      }
-      const tasks = [];
-      if (mainBrowserViewWebContent) {
-        tasks.push(this.viewService.realignActiveView(mainWindow, workspaceToRealign.id));
-        logger.debug(`realignActiveWorkspaceView: realign main window for ${workspaceToRealign.id}.`);
-      } else {
-        logger.warn(`realignActiveWorkspaceView: no mainBrowserViewWebContent, skip main window for ${workspaceToRealign.id}.`);
-      }
-      if (menuBarBrowserViewWebContent) {
-        logger.debug(`realignActiveWorkspaceView: realign menu bar window for ${workspaceToRealign.id}.`);
-        tasks.push(this.viewService.realignActiveView(menuBarWindow, workspaceToRealign.id));
-      } else {
-        logger.info(`realignActiveWorkspaceView: no menuBarBrowserViewWebContent, skip menu bar window for ${workspaceToRealign.id}.`);
-      }
-      await Promise.all(tasks);
+      return;
     }
-  }
-
-  private async hideWorkspaceView(): Promise<void> {
-    const mainWindow = this.windowService.get(WindowNames.main);
-    const menuBarWindow = this.windowService.get(WindowNames.menuBar);
-    const mainBrowserViewWebContent = mainWindow?.getBrowserView()?.webContents;
-    const menuBarBrowserViewWebContent = menuBarWindow?.getBrowserView()?.webContents;
+    if (mainWindow === undefined && menuBarWindow === undefined) {
+      logger.warn('realignActiveWorkspaceView: no active window');
+      return;
+    }
     const tasks = [];
-    if (mainBrowserViewWebContent) {
-      tasks.push(this.viewService.hideView(mainWindow));
-      logger.debug(`hideActiveWorkspaceView: hide main window browserView.`);
+    if (mainWindow === undefined) {
+      logger.warn(`realignActiveWorkspaceView: no mainBrowserViewWebContent, skip main window for ${workspaceToRealign.id}.`);
     } else {
-      logger.warn(`hideActiveWorkspaceView: no mainBrowserViewWebContent, skip main window browserView.`);
+      tasks.push(this.viewService.realignActiveView(mainWindow, workspaceToRealign.id, WindowNames.main));
+      logger.debug(`realignActiveWorkspaceView: realign main window for ${workspaceToRealign.id}.`);
     }
-    if (menuBarBrowserViewWebContent) {
-      logger.debug(`hideActiveWorkspaceView: hide menu bar window browserView.`);
-      tasks.push(this.viewService.hideView(menuBarWindow));
+    if (menuBarWindow === undefined) {
+      logger.info(`realignActiveWorkspaceView: no menuBarBrowserViewWebContent, skip menu bar window for ${workspaceToRealign.id}.`);
     } else {
-      logger.info(`hideActiveWorkspaceView: no menuBarBrowserViewWebContent, skip menu bar window browserView.`);
+      logger.debug(`realignActiveWorkspaceView: realign menu bar window for ${workspaceToRealign.id}.`);
+      tasks.push(this.viewService.realignActiveView(menuBarWindow, workspaceToRealign.id, WindowNames.menuBar));
     }
     await Promise.all(tasks);
+  }
+
+  private async hideWorkspaceView(idToDeactivate: string): Promise<void> {
+    const mainWindow = this.windowService.get(WindowNames.main);
+    const menuBarWindow = this.windowService.get(WindowNames.menuBar);
+    const tasks = [];
+    if (mainWindow === undefined) {
+      logger.warn(`hideWorkspaceView: no mainBrowserWindow, skip main window browserView.`);
+    } else {
+      logger.info(`hideWorkspaceView: hide main window browserView.`);
+      tasks.push(this.viewService.hideView(mainWindow, WindowNames.main, idToDeactivate));
+    }
+    if (menuBarWindow === undefined) {
+      logger.debug(`hideWorkspaceView: no menuBarBrowserWindow, skip menu bar window browserView.`);
+    } else {
+      logger.info(`hideWorkspaceView: hide menu bar window browserView.`);
+      tasks.push(this.viewService.hideView(menuBarWindow, WindowNames.menuBar, idToDeactivate));
+    }
+    await Promise.all(tasks);
+    logger.info(`hideWorkspaceView: done.`);
   }
   /* eslint-enable @typescript-eslint/strict-boolean-expressions */
 }

@@ -9,11 +9,11 @@ import { Route, Switch } from 'wouter';
 import { PageType } from '@services/pages/interface';
 import { usePreferenceObservable } from '@services/preferences/hooks';
 import { WindowNames } from '@services/windows/WindowProperties';
-import FindInPage from '../../components/FindInPage';
-import { SideBar } from '../../components/Sidebar';
 import { Guide } from '../Guide';
 import { Help } from '../Help';
 import { WikiBackground } from '../WikiBackground';
+import FindInPage from './FindInPage';
+import { SideBar } from './Sidebar';
 import { useInitialPage } from './useInitialPage';
 
 const OuterRoot = styled.div`
@@ -59,13 +59,15 @@ const ContentRoot = styled.div<{ $sidebar: boolean }>`
   height: 100%;
 `;
 
-export default function Main(): JSX.Element {
+const windowName = window.meta().windowName;
+
+export default function Main(): React.JSX.Element {
   const { t } = useTranslation();
   useInitialPage();
   const preferences = usePreferenceObservable();
   if (preferences === undefined) return <div>{t('Loading')}</div>;
-  const { sidebar } = preferences;
-
+  const { sidebar, sidebarOnMenubar } = preferences;
+  const showSidebar = windowName === WindowNames.menuBar ? sidebarOnMenubar : sidebar;
   return (
     <OuterRoot>
       <div id='test' data-usage='For spectron automating testing' />
@@ -73,8 +75,8 @@ export default function Main(): JSX.Element {
         <title>{t('Menu.TidGi')}</title>
       </Helmet>
       <Root>
-        {sidebar && <SideBar />}
-        <ContentRoot $sidebar={sidebar}>
+        {showSidebar && <SideBar />}
+        <ContentRoot $sidebar={showSidebar}>
           <FindInPage />
           <Switch>
             <Route path={`/${WindowNames.main}/${PageType.wiki}/:id/`} component={WikiBackground} />

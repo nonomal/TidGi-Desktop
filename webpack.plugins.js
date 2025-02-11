@@ -4,16 +4,12 @@
 /* eslint-disable unicorn/prefer-module */
 /* eslint-disable @typescript-eslint/no-var-requires */
 const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
-const CspHtmlWebpackPlugin = require('csp-html-webpack-plugin');
 const CircularDependencyPlugin = require('circular-dependency-plugin');
 const _ = require('lodash');
-const path = require('path');
-const fs = require('fs-extra');
 const webpack = require('webpack');
 const CopyPlugin = require('copy-webpack-plugin');
 const ThreadsPlugin = require('threads-plugin');
 const ExternalsPlugin = require('webpack5-externals-plugin');
-const EventHooksPlugin = require('event-hooks-webpack-plugin');
 const WebpackBar = require('webpackbar');
 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
 const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
@@ -38,14 +34,22 @@ exports.main = _.compact([
   }),
   new webpack.DefinePlugin({
     'process.env.NODE_ENV': `"${process.env.NODE_ENV ?? 'production'}"`,
+    'const __dirname = path.dirname(fileURLToPath(import.meta.url));': '',
   }),
   new ExternalsPlugin({
     type: 'commonjs',
     // use regex works.
-    include: /@tiddlygit\+tiddlywiki@(.+)|llama-node(.+)|@llama-node(.+)|dugite(.+)/,
+    // include: /@tiddlygit\+tiddlywiki@(.+)|dugite(.+)/,
+    include: /tiddlywiki(.+)|dugite(.+)/,
     // when using npm, we can use this. But with pnpm, this won't work ↓
     // include: path.join(__dirname, 'node_modules', '.pnpm', '@tiddlygit', 'tiddlywiki'),
   }),
+  process.platform === 'win32'
+    ? undefined
+    : new ExternalsPlugin({
+      type: 'commonjs',
+      include: /registry-js(.+)/,
+    }),
   new ThreadsPlugin({
     target: 'electron-node-worker',
     plugins: ['ExternalsPlugin'],
@@ -53,16 +57,17 @@ exports.main = _.compact([
   process.env.NODE_ENV === 'production' ? undefined : new WebpackBar(),
   process.env.NODE_ENV === 'production'
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-    ? new BundleAnalyzerPlugin({ generateStatsFile: true, analyzerMode: 'disabled', statsFilename: '../../out/webpack-stats-main.json' })
+    ? new BundleAnalyzerPlugin({
+      generateStatsFile: true,
+      analyzerMode: 'disabled',
+      statsFilename: '../../out/webpack-stats-main.json',
+    })
     : undefined,
 ]);
 
 exports.renderer = _.compact([
   new webpack.DefinePlugin({
     'process.env.NODE_ENV': `"${process.env.NODE_ENV ?? 'production'}"`,
-    // some noflo modules use process.env.NODE_DEBUG
-    'process.env.NODE_DEBUG': 'false',
-    // global: {},
   }),
   // new CspHtmlWebpackPlugin(
   //   {
@@ -83,7 +88,11 @@ exports.renderer = _.compact([
   process.env.NODE_ENV === 'production' ? undefined : new WebpackBar(),
   process.env.NODE_ENV === 'production'
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-    ? new BundleAnalyzerPlugin({ generateStatsFile: true, analyzerMode: 'disabled', statsFilename: '../../out/webpack-stats-renderer.json' })
+    ? new BundleAnalyzerPlugin({
+      generateStatsFile: true,
+      analyzerMode: 'disabled',
+      statsFilename: '../../out/webpack-stats-renderer.json',
+    })
     : undefined,
   // Example: copy files for webWorker to use
   // new CopyPlugin({

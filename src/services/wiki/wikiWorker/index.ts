@@ -1,28 +1,23 @@
 /* eslint-disable unicorn/prefer-native-coercion-functions */
 /**
  * Worker environment is not part of electron environment, so don't import "@/constants/paths" here, as its process.resourcesPath will become undefined and throw Errors.
- * 
+ *
  * Don't use i18n and logger in worker thread. For example, 12b93020, will throw error "Electron failed to install correctly, please delete node_modules/electron and try installing again ...worker.js..."
- * 
- * Import tw related things and typing from `@tiddlygit/tiddlywiki` instead of `tiddlywiki`, otherwise you will get `Unhandled Error ReferenceError: self is not defined at $:/boot/bootprefix.js:40749:36` because tiddlywiki 
  */
 import { uninstall } from '@/helpers/installV8Cache';
 import './preload';
 import 'source-map-support/register';
-import { type IUtils, TiddlyWiki } from '@tiddlygit/tiddlywiki';
-import Sqlite3Database from 'better-sqlite3';
-import { exists, mkdtemp } from 'fs-extra';
+import { mkdtemp } from 'fs-extra';
 import { tmpdir } from 'os';
 import path from 'path';
 import { Observable } from 'rxjs';
 import { expose } from 'threads/worker';
 
-import { isHtmlWiki } from '@/constants/fileNames';
-import { ISqliteDatabasePaths, SqliteDatabaseNotInitializedError, WikiWorkerDatabaseOperations } from '@services/database/wikiWorkerOperations';
-import { IWikiLogMessage, IZxWorkerMessage, ZxWorkerControlActions } from '../interface';
+import { IZxWorkerMessage, ZxWorkerControlActions } from '../interface';
 import { executeScriptInTWContext, executeScriptInZxScriptContext, extractTWContextScripts, type IVariableContextList } from '../plugin/zxPlugin';
 import { wikiOperationsInWikiWorker } from '../wikiOperations/executor/wikiOperationInServer';
-import { getWikiInstance, setCacheDatabase } from './globals';
+import { getWikiInstance } from './globals';
+import { extractWikiHTML, packetHTMLFromWikiFolder } from './htmlWiki';
 import { ipcServerRoutesMethods } from './ipcServerRoutes';
 import { startNodeJSWiki } from './startNodeJSWiki';
 
@@ -45,30 +40,6 @@ export interface IStartNodeJSWikiConfigs {
   tiddlyWikiPort: number;
   tokenAuth?: boolean;
   userName: string;
-}
-
-export interface IUtilsWithSqlite extends IUtils {
-  Sqlite: Sqlite3Database.Database;
-  TidgiCacheDB: WikiWorkerDatabaseOperations;
-}
-
-function initCacheDatabase(cacheDatabaseConfig: ISqliteDatabasePaths) {
-  return new Observable<IWikiLogMessage>((observer) => {
-    try {
-      observer.next({ type: 'stdout', message: 'Will new WikiWorkerDatabaseOperations' });
-      const cacheDatabase = new WikiWorkerDatabaseOperations(cacheDatabaseConfig);
-      observer.next({ type: 'stdout', message: 'WikiWorkerDatabaseOperations instance created.' });
-      setCacheDatabase(cacheDatabase);
-    } catch (error) {
-      if (error instanceof SqliteDatabaseNotInitializedError) {
-        // this is usual for first time
-        observer.next({ type: 'stdout', message: error.message });
-      } else {
-        // unexpected error
-        observer.next({ type: 'stderr', message: (error as Error)?.message });
-      }
-    }
-  });
 }
 
 export type IZxFileInput = { fileContent: string; fileName: string } | { filePath: string };
@@ -120,57 +91,6 @@ function executeZxScript(file: IZxFileInput, zxPath: string): Observable<IZxWork
   });
 }
 
-async function extractWikiHTML(htmlWikiPath: string, saveWikiFolderPath: string, constants: { TIDDLYWIKI_PACKAGE_FOLDER: string }): Promise<void> {
-  // tiddlywiki --load ./mywiki.html --savewikifolder ./mywikifolder
-  // --savewikifolder <wikifolderpath> [<filter>]
-  // . /mywikifolder is the path where the tiddlder and plugins folders are stored
-  const { TIDDLYWIKI_PACKAGE_FOLDER } = constants;
-
-  if (!isHtmlWiki(htmlWikiPath)) {
-    throw new Error(`Please enter the path to the tiddlywiki.html file. Current path can't be used. ${htmlWikiPath}`);
-  }
-  if (await exists(saveWikiFolderPath)) {
-    throw new Error(`A folder already exists at this path, and a new knowledge base cannot be created here. ${saveWikiFolderPath}`);
-  }
-  const wikiInstance = TiddlyWiki();
-  wikiInstance.boot.argv = ['--load', htmlWikiPath, '--savewikifolder', saveWikiFolderPath, 'explodePlugins=no'];
-  await new Promise<void>((resolve, reject) => {
-    try {
-      wikiInstance.boot.startup({
-        // passing bootPath inside TidGi app. fix The "path" argument must be of type string. Received undefined
-        bootPath: TIDDLYWIKI_PACKAGE_FOLDER,
-        callback: () => {
-          resolve();
-        },
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
-
-async function packetHTMLFromWikiFolder(folderWikiPath: string, pathOfNewHTML: string, constants: { TIDDLYWIKI_PACKAGE_FOLDER: string }): Promise<void> {
-  // tiddlywiki ./mywikifolder --rendertiddler '$:/core/save/all' mywiki.html text/plain
-  // . /mywikifolder is the path to the wiki folder, which generally contains the tiddlder and plugins directories
-  const { TIDDLYWIKI_PACKAGE_FOLDER } = constants;
-  const wikiInstance = TiddlyWiki();
-  // a .html file path should be provided, but if provided a folder path, we can add /index.html to fix it.
-  wikiInstance.boot.argv = [folderWikiPath, '--rendertiddler', '$:/core/save/all', isHtmlWiki(pathOfNewHTML) ? pathOfNewHTML : `${pathOfNewHTML}/index.html`, 'text/plain'];
-  await new Promise<void>((resolve, reject) => {
-    try {
-      wikiInstance.boot.startup({
-        // passing bootPath inside TidGi app. fix The "path" argument must be of type string. Received undefined
-        bootPath: TIDDLYWIKI_PACKAGE_FOLDER,
-        callback: () => {
-          resolve();
-        },
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
-
 function beforeExit(): void {
   uninstall?.uninstall();
 }
@@ -182,7 +102,6 @@ const wikiWorker = {
   extractWikiHTML,
   packetHTMLFromWikiFolder,
   beforeExit,
-  initCacheDatabase,
   wikiOperation: wikiOperationsInWikiWorker.wikiOperation.bind(wikiOperationsInWikiWorker),
   ...ipcServerRoutesMethods,
 };

@@ -23,9 +23,6 @@ export enum DatabaseChannel {
 export enum GitChannel {
   name = 'GitChannel',
 }
-export enum LanguageModelChannel {
-  name = 'LanguageModelChannel',
-}
 export enum MenuChannel {
   name = 'MenuChannel',
 }
@@ -54,9 +51,10 @@ export enum WikiChannel {
   /** used to show wiki creation messages in the TidGi UI for user to read */
   createProgress = 'wiki-create-progress',
   deleteTiddler = 'wiki-delete-tiddler',
+  dispatchEvent = 'wiki-send-action-message',
   generalNotification = 'wiki-notification-tiddly-git',
+  getTiddler = 'wiki-get-tiddler',
   getTiddlerText = 'wiki-get-tiddler-text',
-  getTiddlerTextDone = 'wiki-get-tiddler-text-done',
   /**
    * `$tw.wiki.getTiddlersAsJson('[all[]]')`
    *
@@ -83,19 +81,19 @@ export enum WikiChannel {
    * ```
    */
   getTiddlersAsJson = 'get-tiddlers-as-json',
+  invokeActionsByTag = 'wiki-invoke-actions-by-tag',
   name = 'WikiChannel',
   openTiddler = 'wiki-open-tiddler',
-  printTiddler = 'print-tiddler',
-  runFilter = 'wiki-run-filter',
-  sendActionMessage = 'wiki-send-action-message',
-  setState = 'wiki-set-state',
-  setTiddlerText = 'wiki-set-tiddler-text',
-  /** show message inside tiddlywiki to show git sync progress */
-  syncProgress = 'wiki-sync-progress',
+  renderTiddlerOuterHTML = 'render-tiddler',
   /**
    * Render wiki text to html
    */
   renderWikiText = 'render-wiki-text',
+  runFilter = 'wiki-run-filter',
+  setState = 'wiki-set-state',
+  setTiddlerText = 'wiki-set-tiddler-text',
+  /** show message inside tiddlywiki to show git sync progress */
+  syncProgress = 'wiki-sync-progress',
 }
 export enum WikiGitWorkspaceChannel {
   name = 'WikiGitWorkspaceChannel',
@@ -145,6 +143,11 @@ export enum MetaDataChannel {
   browserViewMetaData = 'browserViewMetaData',
   getViewMetaData = 'getViewMetaData',
   name = 'MetaDataChannel',
+  pushViewMetaData = 'pushViewMetaData',
+}
+
+export enum SyncChannel {
+  name = 'SyncChannel',
 }
 
 export type Channels =
@@ -166,4 +169,5 @@ export type Channels =
   | WindowChannel
   | ThemeChannel
   | I18NChannels
-  | MetaDataChannel;
+  | MetaDataChannel
+  | SyncChannel;

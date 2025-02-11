@@ -3,10 +3,9 @@
 /* eslint-disable @typescript-eslint/strict-boolean-expressions */
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { DEFAULT_USER_NAME } from '@/constants/auth';
 import { usePromiseValue } from '@/helpers/useServiceValue';
 import { useStorageServiceUserInfoObservable } from '@services/auth/hooks';
 import { SupportedStorageServices } from '@services/types';
@@ -27,7 +26,7 @@ export function useIsCreateSyncedWorkspace(): [boolean, React.Dispatch<React.Set
 export function useWikiWorkspaceForm(options?: { fromExisted: boolean }) {
   const { t } = useTranslation();
 
-  const workspaceList = usePromiseValue(async () => await window.service.workspace.getWorkspacesAsList()) ?? [];
+  const workspaceList = usePromiseValue(async () => await window.service.workspace.getWorkspacesAsList(), []);
 
   const [wikiPort, wikiPortSetter] = useState(5212);
   useEffect(() => {
@@ -47,7 +46,7 @@ export function useWikiWorkspaceForm(options?: { fromExisted: boolean }) {
   /**
    * For sub-wiki, we need to link it to a main wiki's folder, so all wiki contents can be loaded together.
    */
-  const mainWorkspaceList = workspaceList.filter((workspace) => !workspace.isSubWiki);
+  const mainWorkspaceList = useMemo(() => workspaceList?.filter((workspace) => !workspace.isSubWiki) ?? [], [workspaceList]);
   const [mainWikiToLink, mainWikiToLinkSetter] = useState<Pick<IWorkspace, 'wikiFolderLocation' | 'port' | 'id'>>(
     mainWorkspaceList[0] ?? { wikiFolderLocation: '', port: 0, id: '' },
   );
@@ -162,10 +161,7 @@ export interface IWikiWorkspaceFormProps {
  * Fill in default value for newly created wiki.
  * @param form New wiki form value
  */
-export async function workspaceConfigFromForm(form: INewWikiRequiredFormData, isCreateMainWorkspace: boolean, isCreateSyncedWorkspace: boolean): Promise<INewWorkspaceConfig> {
-  const fallbackUserName = await window.service.auth.get('userName');
-  const userNameIsEmpty = !(fallbackUserName);
-
+export function workspaceConfigFromForm(form: INewWikiRequiredFormData, isCreateMainWorkspace: boolean, isCreateSyncedWorkspace: boolean): INewWorkspaceConfig {
   return {
     gitUrl: isCreateSyncedWorkspace ? form.gitRepoUrl : null,
     isSubWiki: !isCreateMainWorkspace,
@@ -179,7 +175,8 @@ export async function workspaceConfigFromForm(form: INewWikiRequiredFormData, is
     backupOnInterval: true,
     readOnlyMode: false,
     tokenAuth: false,
-    userName: userNameIsEmpty ? DEFAULT_USER_NAME : undefined,
+    // let global config override this
+    userName: undefined,
     excludedPlugins: [],
     enableHTTPAPI: false,
     lastNodeJSArgv: [],

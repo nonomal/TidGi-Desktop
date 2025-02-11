@@ -16,12 +16,13 @@ import { WindowNames } from '@services/windows/WindowProperties';
 export function sendToMainWindowNoWait(type: WikiChannel, workspaceID: string, messages: string[]): void {
   const viewService = container.get<IViewService>(serviceIdentifier.View);
   const browserView = viewService.getView(workspaceID, WindowNames.main);
-  browserView?.webContents?.send?.(type, ...messages);
+  // second param is always a nonce, but in this case we don't need it
+  browserView?.webContents?.send?.(type, undefined, ...messages);
 }
 /**
  * Send to main window renderer (preload script) and wait for response.
  *
- * Will throw error when on Windows and App is at background (BrowserView will disappear and not accessible.) https://github.com/tiddly-gittly/TidGi-Desktop/issues/398
+ * Will throw error when on Windows and App is at background (WebContentsView will disappear and not accessible.) https://github.com/tiddly-gittly/TidGi-Desktop/issues/398
  *
  * @param type The handler on renderer (preload script) side should implement `ipcRenderer.send(WikiChannel.xxx, nonceReceived, result);`, where `result` is usually `string[]` (the default type for `<T>` in function signature)
  * @returns undefined if main window webContents is not found

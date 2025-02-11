@@ -12,13 +12,12 @@ import {
   Divider,
   Link,
   List,
-  ListItemSecondaryAction,
   Switch,
   TextField,
   Tooltip,
 } from '@mui/material';
 import { useTranslation } from 'react-i18next';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 
 import { ListItem, ListItemText } from '@/components/ListItem';
 import { DEFAULT_USER_NAME, getTidGiAuthHeaderWithToken } from '@/constants/auth';
@@ -36,6 +35,7 @@ const AServerOptionsAccordion = styled(Accordion)`
 `;
 const AServerOptionsAccordionSummary = styled(AccordionSummary)`
   padding: 0;
+  flex-direction: row-reverse;
 `;
 const HttpsCertKeyListItem: typeof ListItem = styled(ListItem)`
   flex-direction: row;
@@ -72,21 +72,20 @@ export function ServerOptions(props: IServerOptionsProps) {
   const actualIP = useActualIp(getDefaultHTTPServerIP(port), id);
   // some feature need a username to work, so if userName is empty, assign a fallbackUserName DEFAULT_USER_NAME
   // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
-  const fallbackUserName = usePromiseValue<string>(async () => (await window.service.auth.get('userName')) as string, '');
+  const fallbackUserName = usePromiseValue<string>(async () => (await window.service.auth.get('userName'))!, '');
   const userNameIsEmpty = !(userName || fallbackUserName);
   const alreadyEnableSomeServerOptions = readOnlyMode;
   return (
     <AServerOptionsAccordion defaultExpanded={alreadyEnableSomeServerOptions}>
       <Tooltip title={t('EditWorkspace.ClickToExpand')}>
         <AServerOptionsAccordionSummary expandIcon={<ExpandMoreIcon />}>
-          {t('EditWorkspace.ServerOptions')}
+          {t('EditWorkspace.ServerOptions')} ({t('EditWorkspace.EnableHTTPAPI')})
         </AServerOptionsAccordionSummary>
       </Tooltip>
       <AccordionDetails>
         <List>
-          <ListItem disableGutters>
-            <ListItemText primary={t('EditWorkspace.EnableHTTPAPI')} secondary={t('EditWorkspace.EnableHTTPAPIDescription')} />
-            <ListItemSecondaryAction>
+          <ListItem disableGutters
+            secondaryAction={
               <Switch
                 edge='end'
                 color='primary'
@@ -95,7 +94,9 @@ export function ServerOptions(props: IServerOptionsProps) {
                   workspaceSetter({ ...workspace, enableHTTPAPI: event.target.checked }, true);
                 }}
               />
-            </ListItemSecondaryAction>
+            }
+          >
+            <ListItemText primary={t('EditWorkspace.EnableHTTPAPI')} secondary={t('EditWorkspace.EnableHTTPAPIDescription')} />
           </ListItem>
 
           <ListItem disableGutters>
@@ -107,7 +108,7 @@ export function ServerOptions(props: IServerOptionsProps) {
                   {t('EditWorkspace.URL')}{' '}
                   <Link
                     onClick={async () => {
-                      actualIP && (await window.service.native.open(actualIP));
+                      actualIP && (await window.service.native.openURI(actualIP));
                     }}
                     style={{ cursor: 'pointer' }}
                   >
@@ -130,17 +131,8 @@ export function ServerOptions(props: IServerOptionsProps) {
           </ListItem>
 
           <Divider />
-          <ListItem disableGutters>
-            <ListItemText
-              primary={t('EditWorkspace.TokenAuth')}
-              secondary={
-                <>
-                  <div>{t('EditWorkspace.TokenAuthDescription')}</div>
-                  {(userNameIsEmpty || !fallbackUserName) && <div>{t('EditWorkspace.TokenAuthAutoFillUserNameDescription')}</div>}
-                </>
-              }
-            />
-            <ListItemSecondaryAction>
+          <ListItem disableGutters
+            secondaryAction={
               <Switch
                 edge='end'
                 color='primary'
@@ -158,7 +150,17 @@ export function ServerOptions(props: IServerOptionsProps) {
                   }, true);
                 }}
               />
-            </ListItemSecondaryAction>
+            }
+          >
+            <ListItemText
+              primary={t('EditWorkspace.TokenAuth')}
+              secondary={
+                <>
+                  <div>{t('EditWorkspace.TokenAuthDescription')}</div>
+                  {(userNameIsEmpty || !fallbackUserName) && <div>{t('EditWorkspace.TokenAuthAutoFillUserNameDescription')}</div>}
+                </>
+              }
+            />
           </ListItem>
           {tokenAuth && (
             <>
@@ -205,9 +207,8 @@ export function ServerOptions(props: IServerOptionsProps) {
             </>
           )}
           <Divider />
-          <ListItem disableGutters>
-            <ListItemText primary={t('EditWorkspace.ReadOnlyMode')} secondary={t('EditWorkspace.ReadOnlyModeDescription')} />
-            <ListItemSecondaryAction>
+          <ListItem disableGutters
+            secondaryAction={
               <Switch
                 edge='end'
                 color='primary'
@@ -216,13 +217,14 @@ export function ServerOptions(props: IServerOptionsProps) {
                   workspaceSetter({ ...workspace, readOnlyMode: event.target.checked, tokenAuth: event.target.checked ? false : tokenAuth }, true);
                 }}
               />
-            </ListItemSecondaryAction>
+            }
+          >
+            <ListItemText primary={t('EditWorkspace.ReadOnlyMode')} secondary={t('EditWorkspace.ReadOnlyModeDescription')} />
           </ListItem>
 
           {workspace !== undefined && readOnlyMode && <ExcludedPluginsAutocomplete workspace={workspace} workspaceSetter={workspaceSetter} />}
-          <ListItem disableGutters>
-            <ListItemText primary={t('EditWorkspace.EnableHTTPS')} secondary={t('EditWorkspace.EnableHTTPSDescription')} />
-            <ListItemSecondaryAction>
+          <ListItem disableGutters
+            secondaryAction={
               <Switch
                 edge='end'
                 color='primary'
@@ -231,7 +233,9 @@ export function ServerOptions(props: IServerOptionsProps) {
                   workspaceSetter({ ...workspace, https: { ...https, enabled: event.target.checked } });
                 }}
               />
-            </ListItemSecondaryAction>
+            }
+          >
+            <ListItemText primary={t('EditWorkspace.EnableHTTPS')} secondary={t('EditWorkspace.EnableHTTPSDescription')} />
           </ListItem>
           {https.enabled && (
             <>
@@ -341,6 +345,7 @@ export function ServerOptions(props: IServerOptionsProps) {
           renderInput={(parameters: AutocompleteRenderInputParams) => (
             <TextField {...parameters} label={t('EditWorkspace.WikiRootTiddler')} helperText={t('EditWorkspace.WikiRootTiddlerDescription')} />
           )}
+          renderOption={(props, option) => <li {...props}>{t(`EditWorkspace.WikiRootTiddlerItems.${option.replace('$:/core/save/', '')}`)} ({option})</li>}
         />
       </AccordionDetails>
     </AServerOptionsAccordion>

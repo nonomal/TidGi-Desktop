@@ -1,9 +1,12 @@
 import useObservable from 'beautiful-react-hooks/useObservable';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { IPage } from './interface';
 
 export function usePagesListObservable(): IPage[] | undefined {
   const [pages, pagesSetter] = useState<IPage[] | undefined>();
-  useObservable(window.observables.pages.pages$, pagesSetter as any);
+  const setter = useCallback((newPages: IPage[] | undefined) => {
+    pagesSetter((newPages ?? []).sort((a, b) => a.order - b.order));
+  }, []);
+  useObservable(window.observables.pages.pages$, setter);
   return pages;
 }

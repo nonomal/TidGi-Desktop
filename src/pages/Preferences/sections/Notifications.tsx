@@ -2,7 +2,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import semver from 'semver';
 
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import { Divider, List, ListItemSecondaryAction, Switch } from '@mui/material';
+import { Divider, List, ListItemButton, Switch } from '@mui/material';
 import { TimePicker } from '@mui/x-date-pickers/TimePicker';
 
 import { ListItem, ListItemText } from '@/components/ListItem';
@@ -12,7 +12,7 @@ import { WindowNames } from '@services/windows/WindowProperties';
 import { Link, ListItemVertical, Paper, SectionTitle, TimePickerContainer } from '../PreferenceComponents';
 import type { ISectionProps } from '../useSections';
 
-export function Notifications(props: Required<ISectionProps>): JSX.Element {
+export function Notifications(props: Required<ISectionProps>): React.JSX.Element {
   const { t } = useTranslation();
 
   const preference = usePreferenceObservable();
@@ -32,15 +32,14 @@ export function Notifications(props: Required<ISectionProps>): JSX.Element {
         <List dense disablePadding>
           {preference === undefined || platform === undefined ? <ListItem>{t('Loading')}</ListItem> : (
             <>
-              <ListItem
-                button
+              <ListItemButton
                 onClick={async () => {
                   await window.service.window.open(WindowNames.notifications);
                 }}
               >
                 <ListItemText primary={t('Preference.NotificationsDetail')} />
                 <ChevronRightIcon color='action' />
-              </ListItem>
+              </ListItemButton>
               <Divider />
               <ListItemVertical>
                 <ListItemText primary={t('Preference.NotificationsDisableSchedule')} />
@@ -75,21 +74,18 @@ export function Notifications(props: Required<ISectionProps>): JSX.Element {
                   />
                 </TimePickerContainer>
                 ({window.Intl.DateTimeFormat().resolvedOptions().timeZone})
-                <ListItemSecondaryAction>
-                  <Switch
-                    edge='end'
-                    color='primary'
-                    checked={preference.pauseNotificationsBySchedule}
-                    onChange={async (event) => {
-                      await window.service.preference.set('pauseNotificationsBySchedule', event.target.checked);
-                    }}
-                  />
-                </ListItemSecondaryAction>
+                <Switch
+                  edge='end'
+                  color='primary'
+                  checked={preference.pauseNotificationsBySchedule}
+                  onChange={async (event) => {
+                    await window.service.preference.set('pauseNotificationsBySchedule', event.target.checked);
+                  }}
+                />
               </ListItemVertical>
               <Divider />
-              <ListItem>
-                <ListItemText primary={t('Preference.NotificationsMuteAudio')} />
-                <ListItemSecondaryAction>
+              <ListItem
+                secondaryAction={
                   <Switch
                     edge='end'
                     color='primary'
@@ -98,12 +94,13 @@ export function Notifications(props: Required<ISectionProps>): JSX.Element {
                       await window.service.preference.set('pauseNotificationsMuteAudio', event.target.checked);
                     }}
                   />
-                </ListItemSecondaryAction>
+                }
+              >
+                <ListItemText primary={t('Preference.NotificationsMuteAudio')} />
               </ListItem>
               <Divider />
-              <ListItem>
-                <ListItemText primary='Show unread count badge' />
-                <ListItemSecondaryAction>
+              <ListItem
+                secondaryAction={
                   <Switch
                     edge='end'
                     color='primary'
@@ -113,11 +110,12 @@ export function Notifications(props: Required<ISectionProps>): JSX.Element {
                       props.requestRestartCountDown();
                     }}
                   />
-                </ListItemSecondaryAction>
+                }
+              >
+                <ListItemText primary='Show unread count badge' />
               </ListItem>
               <Divider />
-              <ListItem
-                button
+              <ListItemButton
                 onClick={() => {
                   void window.service.notification.show({
                     title: t('Preference.TestNotification'),
@@ -142,7 +140,7 @@ export function Notifications(props: Required<ISectionProps>): JSX.Element {
                   })()}
                 />
                 <ChevronRightIcon color='action' />
-              </ListItem>
+              </ListItemButton>
               <Divider />
               <ListItem>
                 <ListItemText
@@ -153,11 +151,11 @@ export function Notifications(props: Required<ISectionProps>): JSX.Element {
                       </span>
                       <Link
                         onClick={async () => {
-                          await window.service.native.open('https://github.com/atomery/webcatalog/wiki/How-to-Enable-Notifications-in-Web-Apps');
+                          await window.service.native.openURI('https://github.com/atomery/webcatalog/wiki/How-to-Enable-Notifications-in-Web-Apps');
                         }}
                         onKeyDown={(event: React.KeyboardEvent<HTMLSpanElement>) => {
                           if (event.key !== 'Enter') return;
-                          void window.service.native.open('https://github.com/atomery/webcatalog/wiki/How-to-Enable-Notifications-in-Web-Apps');
+                          void window.service.native.openURI('https://github.com/atomery/webcatalog/wiki/How-to-Enable-Notifications-in-Web-Apps');
                         }}
                       >
                         Learn more

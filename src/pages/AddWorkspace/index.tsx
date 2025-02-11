@@ -1,10 +1,10 @@
 import { ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
-import { TabContext, TabList as TabListRaw, TabPanel as TabPanelRaw } from '@mui/lab';
-import { Accordion as AccordionRaw, AccordionDetails, AccordionSummary, AppBar, Paper as PaperRaw, Tab as TabRaw } from '@mui/material';
+import { TabContext, TabPanel as TabPanelRaw } from '@mui/lab';
+import { Accordion as AccordionRaw, AccordionDetails, AccordionSummary, AppBar, Paper as PaperRaw, Tab as TabRaw, Tabs as TabsRaw } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { useTranslation } from 'react-i18next';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 
 import { SupportedStorageServices } from '@services/types';
 
@@ -20,17 +20,12 @@ import { IErrorInWhichComponent, useWikiWorkspaceForm } from './useForm';
 
 import { TokenForm } from '@/components/TokenForm';
 import { usePromiseValue } from '@/helpers/useServiceValue';
+import { IPossibleWindowMeta, WindowMeta, WindowNames } from '@services/windows/WindowProperties';
+import { CreateWorkspaceTabs } from './constants';
 import { LocationPickerContainer, LocationPickerInput } from './FormComponents';
 import { GitRepoUrlForm } from './GitRepoUrlForm';
 import { ImportHtmlWikiDoneButton } from './ImportHtmlWikiDoneButton';
 import { ImportHtmlWikiForm } from './ImportHtmlWikiForm';
-
-enum CreateWorkspaceTabs {
-  CloneOnlineWiki = 'CloneOnlineWiki',
-  CreateNewWiki = 'CreateNewWiki',
-  OpenLocalWiki = 'OpenLocalWiki',
-  OpenLocalWikiFromHtml = 'OpenLocalWikiFromHtml',
-}
 
 export const Paper = styled(PaperRaw)`
   border-color: ${({ theme }) => theme.palette.divider};
@@ -60,7 +55,7 @@ TokenFormContainer.defaultProps = {
   square: true,
   elevation: 2,
 };
-const TabList = styled(TabListRaw)`
+const Tabs = styled(TabsRaw)`
   background: ${({ theme }) => theme.palette.background.paper};
   color: ${({ theme }) => theme.palette.text.secondary};
 `;
@@ -76,9 +71,11 @@ const AdvancedSettingsAccordionSummary = styled(AccordionSummary)`
   margin-top: 10px;
 `;
 
-export function AddWorkspace(): JSX.Element {
+export function AddWorkspace(): React.JSX.Element {
   const { t } = useTranslation();
-  const [currentTab, currentTabSetter] = useState<CreateWorkspaceTabs>(CreateWorkspaceTabs.CreateNewWiki);
+  const [currentTab, currentTabSetter] = useState<CreateWorkspaceTabs>(
+    (window.meta() as IPossibleWindowMeta<WindowMeta[WindowNames.addWorkspace]>)?.addWorkspaceTab ?? CreateWorkspaceTabs.CreateNewWiki,
+  );
   const isCreateSyncedWorkspace = currentTab === CreateWorkspaceTabs.CloneOnlineWiki;
   const [isCreateMainWorkspace, isCreateMainWorkspaceSetter] = useState(true);
   const form = useWikiWorkspaceForm();
@@ -116,7 +113,7 @@ export function AddWorkspace(): JSX.Element {
       </Helmet>
       <AppBar position='static'>
         <Paper square>
-          <TabList
+          <Tabs
             onChange={(_event: React.SyntheticEvent<Element, Event>, newValue: CreateWorkspaceTabs) => {
               currentTabSetter(newValue);
             }}
@@ -128,7 +125,7 @@ export function AddWorkspace(): JSX.Element {
             <Tab label={t(`AddWorkspace.CloneOnlineWiki`)} value={CreateWorkspaceTabs.CloneOnlineWiki} />
             <Tab label={t('AddWorkspace.OpenLocalWiki')} value={CreateWorkspaceTabs.OpenLocalWiki} />
             <Tab label={t('AddWorkspace.OpenLocalWikiFromHTML')} value={CreateWorkspaceTabs.OpenLocalWikiFromHtml} />
-          </TabList>
+          </Tabs>
         </Paper>
       </AppBar>
 
@@ -139,18 +136,6 @@ export function AddWorkspace(): JSX.Element {
           {/* Force it only show sync option when clone online wiki, because many user encounter sync problem here. Recommend them create local first and sync later. */}
           {isCreateSyncedWorkspace && <SyncedWikiDescription isCreateSyncedWorkspace={isCreateSyncedWorkspace} isCreateSyncedWorkspaceSetter={() => {}} />}
           <MainSubWikiDescription isCreateMainWorkspace={isCreateMainWorkspace} isCreateMainWorkspaceSetter={isCreateMainWorkspaceSetter} />
-          {isCreateMainWorkspace && (
-            <LocationPickerContainer>
-              <LocationPickerInput
-                error={errorInWhichComponent.wikiPort}
-                onChange={(event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-                  form.wikiPortSetter(Number(event.target.value));
-                }}
-                label={t('AddWorkspace.WikiServerPort')}
-                value={wikiPort}
-              />
-            </LocationPickerContainer>
-          )}
         </AccordionDetails>
       </Accordion>
 

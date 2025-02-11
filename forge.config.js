@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/restrict-template-expressions */
 const packageJson = require('./package.json');
-const beforeAsar = require('./scripts/beforeAsar');
+const beforeAsar = require('./scripts/beforeAsar').default;
+const afterPack = require('./scripts/afterPack').default;
 
-const { version, description } = packageJson;
+const { description } = packageJson;
 
 const config = {
   packagerConfig: {
@@ -30,8 +31,8 @@ const config = {
       electronLanguages: ['zh_CN', 'en', 'ja'],
     },
     appBundleId: 'com.tidgi',
-    afterPrune: ['scripts/afterPack.js'],
-    beforeAsar: [beforeAsar.default],
+    afterPrune: [afterPack],
+    beforeAsar: [beforeAsar],
   },
   makers: [
     {
@@ -46,27 +47,38 @@ const config = {
         };
       },
     },
-    {
-      name: '@electron-forge/maker-wix',
-      config: (arch) => {
-        return {
-          language: 1033,
-          manufacturer: 'tiddlywiki.org',
-          programFilesFolderName: 'TiddlyWiki',
-          shortcutFolderName: 'TiddlyWiki',
-          description,
-          exe: 'TidGi',
-          name: 'TidGi',
-          ui: {
-            chooseDirectory: true,
-          },
-          appIconPath: 'build-resources/icon.ico',
-          // WiX distributables do not handle prerelease information in the app version, removing it from the MSI (-prerelease3.4)
-          // and https://github.com/felixrieseberg/electron-wix-msi/issues/110 ask use to use fixed number
-          version: '1.0.0',
-        };
-      },
-    },
+    // Env WIN_CSC_LINK is not correct https://github.com/rabbit-hole-syndrome/electron-forge-maker-portable/issues/7
+    // {
+    //   name: '@rabbitholesyndrome/electron-forge-maker-portable',
+    //   platforms: ['win32'],
+    //   config: (arch) => {
+    //     return {
+    //       artifactName: `Portable-TidGi-Windows-${arch}.exe`,
+    //     };
+    //   },
+    // },
+    //  ✖ Preparing native dependencies: 0 / 1 [FAILED: node-gyp failed to rebuild '/Users/runner/work/TidGi-Desktop/TidGi-Desktop/node_modules/.pnpm/@bitdisaster+exe-icon-extractor@1.0.10/node_modules/@bitdisaster/exe-icon-extractor']
+    // {
+    //   name: '@electron-forge/maker-wix',
+    //   config: (arch) => {
+    //     return {
+    //       language: 1033,
+    //       manufacturer: 'tiddlywiki.org',
+    //       programFilesFolderName: 'TiddlyWiki',
+    //       shortcutFolderName: 'TiddlyWiki',
+    //       description,
+    //       exe: 'TidGi',
+    //       name: 'TidGi',
+    //       ui: {
+    //         chooseDirectory: true,
+    //       },
+    //       appIconPath: 'build-resources/icon.ico',
+    //       // WiX distributables do not handle prerelease information in the app version, removing it from the MSI (-prerelease3.4)
+    //       // and https://github.com/felixrieseberg/electron-wix-msi/issues/110 ask use to use fixed number
+    //       version: '1.0.0',
+    //     };
+    //   },
+    // },
     {
       name: '@electron-forge/maker-zip',
       platforms: ['darwin'],
@@ -77,6 +89,7 @@ const config = {
       executableName: 'tidgi',
       config: {
         maintainer: 'Lin Onetwo <linonetwo012@gmail.com>',
+        mimeType: ['x-scheme-handler/tidgi'],
       },
     },
     {
@@ -85,6 +98,7 @@ const config = {
       executableName: 'tidgi',
       config: {
         maintainer: 'Lin Onetwo <linonetwo012@gmail.com>',
+        mimeType: ['x-scheme-handler/tidgi'],
       },
     },
     /**
@@ -95,17 +109,21 @@ const config = {
         An unhandled rejection has occurred inside Forge:
         [object Object]
      */
-    {
-      name: '@reforged/maker-appimage',
-      platforms: ['linux'],
-      config: {
-        options: {
-          maintainer: 'Lin Onetwo <linonetwo012@gmail.com>',
-          homepage: 'https://github.com/tiddly-gittly/TidGi-Desktop',
-          icon: 'build-resources/icon.png',
-        },
-      },
-    },
+    /**
+     * TypeError: maker.clone is not a function
+at /home/runner/work/TidGi-Desktop/TidGi-Desktop/node_modules/.pnpm/@electron-forge+core@7.2.0/node_modules/@electron-forge/core/dist/api/make.js:120:45
+     */
+    // {
+    //   name: '@reforged/maker-appimage',
+    //   platforms: ['linux'],
+    //   config: {
+    //     options: {
+    //       maintainer: 'Lin Onetwo <linonetwo012@gmail.com>',
+    //       homepage: 'https://github.com/tiddly-gittly/TidGi-Desktop',
+    //       icon: 'build-resources/icon.png',
+    //     },
+    //   },
+    // },
     /**
      * ✖ Making for target: flatpak - On platform: linux - For arch: x64
 

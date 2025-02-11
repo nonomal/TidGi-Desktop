@@ -2,7 +2,6 @@ import { ProxyPropertyType } from 'electron-ipc-cat/common';
 
 import { PreferenceChannel } from '@/constants/channels';
 import type { HunspellLanguages } from '@/constants/hunspellLanguages';
-import type { ILanguageModelPreferences } from '@services/languageModel/interface';
 import type { BehaviorSubject } from 'rxjs';
 
 export interface IPreferences {
@@ -10,13 +9,19 @@ export interface IPreferences {
   alwaysOnTop: boolean;
   askForDownloadPath: boolean;
   attachToMenubar: boolean;
+  /**
+   * 完全关闭反盗链
+   */
+  disableAntiAntiLeech: boolean;
+  /**
+   * Only disable anti-leech for these urls
+   */
+  disableAntiAntiLeechForUrls: string[];
   downloadPath: string;
   hibernateUnusedWorkspacesAtLaunch: boolean;
   hideMenuBar: boolean;
-  showSideBarIcon: boolean;
   ignoreCertificateErrors: boolean;
   language: string;
-  languageModel: ILanguageModelPreferences;
   menuBarAlwaysOnTop: boolean;
   pauseNotifications: string | undefined;
   pauseNotificationsBySchedule: boolean;
@@ -24,9 +29,18 @@ export interface IPreferences {
   pauseNotificationsByScheduleTo: string;
   pauseNotificationsMuteAudio: boolean;
   rememberLastPageVisited: boolean;
+  runOnBackground: boolean;
   shareWorkspaceBrowsingData: boolean;
-  sidebar: boolean;
+  showSideBarIcon: boolean;
   showSideBarText: boolean;
+  /**
+   * Should show sidebar on main window?
+   */
+  sidebar: boolean;
+  /**
+   * Should show sidebar on menubar window?
+   */
+  sidebarOnMenubar: boolean;
   spellcheck: boolean;
   spellcheckLanguages: HunspellLanguages[];
   swipeToNavigate: boolean;
@@ -47,7 +61,6 @@ export enum PreferenceSections {
   downloads = 'downloads',
   friendLinks = 'friendLinks',
   general = 'general',
-  languageModel = 'languageModel',
   languages = 'languages',
   misc = 'misc',
   network = 'network',
@@ -68,15 +81,19 @@ export interface IPreferenceService {
   /**
    * get preferences, may return cached version
    */
-  getPreferences: () => Promise<IPreferences>;
+  getPreferences(): IPreferences;
   /** Subscribable stream to get react component updated with latest preferences */
-  preference$: BehaviorSubject<IPreferences>;
+  preference$: BehaviorSubject<IPreferences | undefined>;
   reset(): Promise<void>;
   resetWithConfirm(): Promise<void>;
   /**
    * Update preferences, update cache and observable
    */
   set<K extends keyof IPreferences>(key: K, value: IPreferences[K]): Promise<void>;
+  /**
+   * Manually refresh the observable's content, that will be received by react component.
+   */
+  updatePreferenceSubject(): void;
 }
 export const PreferenceServiceIPCDescriptor = {
   channel: PreferenceChannel.name,
@@ -87,5 +104,6 @@ export const PreferenceServiceIPCDescriptor = {
     get: ProxyPropertyType.Function,
     reset: ProxyPropertyType.Function,
     resetWithConfirm: ProxyPropertyType.Function,
+    updatePreferenceSubject: ProxyPropertyType.Function,
   },
 };

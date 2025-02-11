@@ -1,10 +1,11 @@
-import { WikiChannel } from '@/constants/channels';
+/* eslint-disable @typescript-eslint/strict-boolean-expressions */
 import { getDefaultHTTPServerIP } from '@/constants/urls';
 import type { IAuthenticationService } from '@services/auth/interface';
 import { IContextService } from '@services/context/interface';
 import { IGitService } from '@services/git/interface';
 import type { INativeService } from '@services/native/interface';
-import { IPagesService, PageType } from '@services/pages/interface';
+import { IPagesService } from '@services/pages/interface';
+import { ISyncService } from '@services/sync/interface';
 import { SupportedStorageServices } from '@services/types';
 import type { IViewService } from '@services/view/interface';
 import type { IWikiService } from '@services/wiki/interface';
@@ -21,13 +22,14 @@ interface IWorkspaceMenuRequiredServices {
   auth: Pick<IAuthenticationService, 'getStorageServiceUserInfo'>;
   context: Pick<IContextService, 'isOnline'>;
   git: Pick<IGitService, 'commitAndSync'>;
-  native: Pick<INativeService, 'open' | 'openInEditor' | 'openInGitGuiApp' | 'getLocalHostUrlWithActualInfo'>;
+  native: Pick<INativeService, 'log' | 'openURI' | 'openPath' | 'openInEditor' | 'openInGitGuiApp' | 'getLocalHostUrlWithActualInfo'>;
   pages: Pick<IPagesService, 'setActivePage' | 'getActivePage'>;
+  sync: Pick<ISyncService, 'syncWikiIfNeeded'>;
   view: Pick<IViewService, 'reloadViewsWebContents' | 'getViewCurrentUrl'>;
-  wiki: Pick<IWikiService, 'wikiOperationInBrowser' | 'wikiOperationInServer' | 'requestWikiSendActionMessage'>;
+  wiki: Pick<IWikiService, 'wikiOperationInBrowser' | 'wikiOperationInServer'>;
   wikiGitWorkspace: Pick<IWikiGitWorkspaceService, 'removeWorkspace'>;
   window: Pick<IWindowService, 'open'>;
-  workspace: Pick<IWorkspaceService, 'getActiveWorkspace' | 'getSubWorkspacesAsList'>;
+  workspace: Pick<IWorkspaceService, 'getActiveWorkspace' | 'getSubWorkspacesAsList' | 'openWorkspaceTiddler'>;
   workspaceView: Pick<
     IWorkspaceViewService,
     | 'wakeUpWorkspaceView'
@@ -40,35 +42,12 @@ interface IWorkspaceMenuRequiredServices {
   >;
 }
 
-export async function openWorkspaceTagTiddler(workspace: IWorkspace, service: IWorkspaceMenuRequiredServices): Promise<void> {
-  const { id: idToActive, isSubWiki, tagName, mainWikiID } = workspace;
-  // switch to workspace page
-  const oldActivePage = await service.pages.getActivePage();
-  await service.pages.setActivePage(PageType.wiki, oldActivePage?.id);
-  const oldActiveWorkspace = await service.workspace.getActiveWorkspace();
-  // if is a new main workspace, active its browser view first
-  if (!isSubWiki && idToActive !== null && idToActive !== undefined && oldActiveWorkspace?.id !== idToActive) {
-    await service.workspaceView.setActiveWorkspaceView(idToActive);
-    return;
-  }
-  // is not a new main workspace
-  // open tiddler in the active view
-  if (isSubWiki) {
-    if (mainWikiID === null || idToActive === undefined || tagName === null) {
-      return;
-    }
-    await service.wiki.wikiOperationInBrowser(WikiChannel.openTiddler, mainWikiID, [tagName]);
-  } else {
-    await service.wiki.requestWikiSendActionMessage('tm-home');
-  }
-}
-
 export async function getWorkspaceMenuTemplate(
   workspace: IWorkspace,
   t: TFunction<[_DefaultNamespace, ...Array<Exclude<FlatNamespace, _DefaultNamespace>>]>,
   service: IWorkspaceMenuRequiredServices,
 ): Promise<MenuItemConstructorOptions[]> {
-  const { active, id, mainWikiID, hibernated, tagName, isSubWiki, wikiFolderLocation, gitUrl, storageService, port, name, enableHTTPAPI, lastUrl, homeUrl } = workspace;
+  const { active, id, hibernated, tagName, isSubWiki, wikiFolderLocation, gitUrl, storageService, port, name, enableHTTPAPI, lastUrl, homeUrl } = workspace;
   /* eslint-disable @typescript-eslint/no-misused-promises */
   const template: MenuItemConstructorOptions[] = [
     {
@@ -76,7 +55,7 @@ export async function getWorkspaceMenuTemplate(
         tagName: tagName ?? (isSubWiki ? name : `${name} ${t('WorkspaceSelector.DefaultTiddlers')}`),
       }),
       click: async () => {
-        await openWorkspaceTagTiddler(workspace, service);
+        await service.workspace.openWorkspaceTiddler(workspace);
       },
     },
     {
@@ -101,7 +80,7 @@ export async function getWorkspaceMenuTemplate(
     {
       label: t('WorkspaceSelector.OpenWorkspaceFolder'),
       click: async () => {
-        await service.native.open(wikiFolderLocation, true);
+        await service.native.openPath(wikiFolderLocation);
       },
     },
     {
@@ -117,7 +96,7 @@ export async function getWorkspaceMenuTemplate(
       enabled: enableHTTPAPI,
       click: async () => {
         const actualIP = await service.native.getLocalHostUrlWithActualInfo(getDefaultHTTPServerIP(port), id);
-        await service.native.open(actualIP);
+        await service.native.openURI(actualIP);
       },
     },
   ];
@@ -130,36 +109,7 @@ export async function getWorkspaceMenuTemplate(
         label: t('ContextMenu.SyncNow') + (isOnline ? '' : `(${t('ContextMenu.NoNetworkConnection')})`),
         enabled: isOnline,
         click: async () => {
-          if (isSubWiki) {
-            const hasChanges = await service.git.commitAndSync(workspace, { remoteUrl: gitUrl, userInfo });
-            if (hasChanges) {
-              if (mainWikiID === null) {
-                await service.workspaceView.restartWorkspaceViewService(id);
-                await service.view.reloadViewsWebContents(id);
-              } else {
-                // reload main workspace to reflect change (do this before watch-fs stable)
-                await service.workspaceView.restartWorkspaceViewService(mainWikiID);
-                await service.view.reloadViewsWebContents(mainWikiID);
-              }
-            }
-          } else {
-            // sync all sub workspace
-            const mainHasChanges = await service.git.commitAndSync(workspace, { remoteUrl: gitUrl, userInfo });
-            const subWorkspaces = await service.workspace.getSubWorkspacesAsList(id);
-            const subHasChangesPromise = subWorkspaces.map(async (subWorkspace) => {
-              const { gitUrl: subGitUrl } = subWorkspace;
-              // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
-              if (!subGitUrl) return false;
-              const hasChanges = await service.git.commitAndSync(subWorkspace, { remoteUrl: subGitUrl, userInfo });
-              return hasChanges;
-            });
-            const subHasChange = (await Promise.all(subHasChangesPromise)).some(Boolean);
-            const hasChange = mainHasChanges || subHasChange;
-            if (hasChange) {
-              await service.workspaceView.restartWorkspaceViewService(id);
-              await service.view.reloadViewsWebContents(id);
-            }
-          }
+          await service.sync.syncWikiIfNeeded(workspace);
         },
       });
     }
@@ -168,7 +118,7 @@ export async function getWorkspaceMenuTemplate(
     template.push({
       label: t('ContextMenu.BackupNow'),
       click: async () => {
-        await service.git.commitAndSync(workspace, { commitOnly: true });
+        await service.sync.syncWikiIfNeeded(workspace);
       },
     });
   }
@@ -192,7 +142,8 @@ export async function getWorkspaceMenuTemplate(
   }
 
   if (!active && !isSubWiki) {
-    template.splice(1, 0, {
+    // This is rarely used, put in the middle.
+    template.splice(3, 0, {
       label: hibernated ? t('WorkspaceSelector.WakeUpWorkspace') : t('WorkspaceSelector.HibernateWorkspace'),
       click: async () => {
         if (hibernated) {

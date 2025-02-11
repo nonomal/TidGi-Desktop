@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-misused-promises */
 /* eslint-disable @typescript-eslint/require-await */
+import { WikiChannel } from '@/constants/channels';
 import type { IAuthenticationService } from '@services/auth/interface';
 import { lazyInject } from '@services/container';
 import type { IContextService } from '@services/context/interface';
@@ -10,13 +11,13 @@ import type { INativeService } from '@services/native/interface';
 import type { IPagesService } from '@services/pages/interface';
 import type { IPreferenceService } from '@services/preferences/interface';
 import serviceIdentifier from '@services/serviceIdentifier';
-import type { IUpdaterService } from '@services/updater/interface';
+import { ISyncService } from '@services/sync/interface';
 import type { IViewService } from '@services/view/interface';
 import type { IWikiService } from '@services/wiki/interface';
 import type { IWikiGitWorkspaceService } from '@services/wikiGitWorkspace/interface';
 import type { IWindowService } from '@services/windows/interface';
 import { WindowNames } from '@services/windows/WindowProperties';
-import { getWorkspaceMenuTemplate, openWorkspaceTagTiddler } from '@services/workspaces/getWorkspaceMenuTemplate';
+import { getWorkspaceMenuTemplate } from '@services/workspaces/getWorkspaceMenuTemplate';
 import type { IWorkspaceService } from '@services/workspaces/interface';
 import type { IWorkspaceViewService } from '@services/workspacesView/interface';
 import { app, ContextMenuParams, Menu, MenuItem, MenuItemConstructorOptions, shell, WebContents } from 'electron';
@@ -27,6 +28,7 @@ import { IpcSafeMenuItem, mainMenuItemProxy } from './contextMenu/rendererMenuIt
 import { InsertMenuAfterSubMenuIndexError } from './error';
 import type { IMenuService, IOnContextMenuInfo } from './interface';
 import { DeferredMenuItemConstructorOptions } from './interface';
+import { loadDefaultMenuTemplate } from './loadDefaultMenuTemplate';
 
 @injectable()
 export class MenuService implements IMenuService {
@@ -48,9 +50,6 @@ export class MenuService implements IMenuService {
   @lazyInject(serviceIdentifier.Preference)
   private readonly preferenceService!: IPreferenceService;
 
-  @lazyInject(serviceIdentifier.Updater)
-  private readonly updaterService!: IUpdaterService;
-
   @lazyInject(serviceIdentifier.View)
   private readonly viewService!: IViewService;
 
@@ -69,12 +68,15 @@ export class MenuService implements IMenuService {
   @lazyInject(serviceIdentifier.WorkspaceView)
   private readonly workspaceViewService!: IWorkspaceViewService;
 
-  private _menuTemplate?: DeferredMenuItemConstructorOptions[];
+  @lazyInject(serviceIdentifier.Sync)
+  private readonly syncService!: ISyncService;
+
+  #menuTemplate?: DeferredMenuItemConstructorOptions[];
   private get menuTemplate(): DeferredMenuItemConstructorOptions[] {
-    if (this._menuTemplate === undefined) {
-      this.loadDefaultMenuTemplate();
+    if (this.#menuTemplate === undefined) {
+      this.#menuTemplate = loadDefaultMenuTemplate();
     }
-    return this._menuTemplate!;
+    return this.#menuTemplate;
   }
 
   /**
@@ -145,119 +147,6 @@ export class MenuService implements IMenuService {
           submenu: Array.isArray(item.submenu) ? await this.getCurrentMenuItemConstructorOptions(compact(item.submenu)) : item.submenu,
         })),
     );
-  }
-
-  /**
-   * Defer to i18next ready to call this
-   */
-  private loadDefaultMenuTemplate(): void {
-    this._menuTemplate = [
-      {
-        label: () => i18n.t('Menu.TidGi'),
-        id: 'TidGi',
-        submenu: [
-          {
-            label: () => i18n.t('ContextMenu.About'),
-            click: async () => {
-              await this.windowService.open(WindowNames.about);
-            },
-          },
-          { type: 'separator' },
-          {
-            id: 'update',
-            label: () => i18n.t('Updater.CheckUpdate'),
-            click: async () => {
-              await this.updaterService.checkForUpdates();
-            },
-          },
-          {
-            label: () => i18n.t('ContextMenu.Preferences'),
-            accelerator: 'CmdOrCtrl+,',
-            click: async () => {
-              await this.windowService.open(WindowNames.preferences);
-            },
-          },
-          { type: 'separator' },
-          {
-            label: () => i18n.t('Preference.Notifications'),
-            click: async () => {
-              await this.windowService.open(WindowNames.notifications);
-            },
-            accelerator: 'CmdOrCtrl+Shift+N',
-          },
-          { type: 'separator' },
-          { role: 'services', submenu: [] },
-          { type: 'separator' },
-          { role: 'hide' },
-          { role: 'hideOthers' },
-          { role: 'unhide' },
-          { label: () => i18n.t('ContextMenu.Quit') + i18n.t('Menu.TidGi'), role: 'quit' },
-        ],
-      },
-      {
-        label: () => i18n.t('Menu.Edit'),
-        id: 'Edit',
-        role: 'editMenu',
-      },
-      {
-        label: () => i18n.t('Menu.View'),
-        id: 'View',
-      },
-      {
-        label: () => i18n.t('Menu.Language'),
-        id: 'Language',
-      },
-      {
-        label: () => i18n.t('Menu.History'),
-        id: 'History',
-      },
-      {
-        label: () => i18n.t('Menu.Workspaces'),
-        id: 'Workspaces',
-        submenu: [],
-      },
-      {
-        label: () => i18n.t('Menu.Wiki'),
-        id: 'Wiki',
-        submenu: [],
-      },
-      {
-        label: () => i18n.t('Menu.Window'),
-        role: 'windowMenu',
-        id: 'Window',
-      },
-      {
-        label: () => i18n.t('Menu.Help'),
-        role: 'help',
-        id: 'help',
-        submenu: [
-          {
-            label: () => i18n.t('ContextMenu.TidGiSupport'),
-            click: async () => {
-              await shell.openExternal('https://github.com/tiddly-gittly/TidGi-desktop/issues');
-            },
-          },
-          {
-            label: () => i18n.t('Menu.ReportBugViaGithub'),
-            click: async () => {
-              await shell.openExternal('https://github.com/tiddly-gittly/TidGi-desktop/issues');
-            },
-          },
-          {
-            label: () => i18n.t('Menu.RequestFeatureViaGithub'),
-            click: async () => {
-              await shell.openExternal('https://github.com/tiddly-gittly/TidGi-desktop/issues/new?template=feature.md&title=feature%3A+');
-            },
-          },
-          {
-            label: () => i18n.t('Menu.LearnMore'),
-            click: async () => {
-              await shell.openExternal('https://github.com/tiddly-gittly/TidGi-desktop/');
-            },
-          },
-        ],
-      },
-    ];
   }
 
   constructor() {
@@ -414,6 +303,7 @@ export class MenuService implements IMenuService {
       window: this.windowService,
       workspace: this.workspaceService,
       workspaceView: this.workspaceViewService,
+      sync: this.syncService,
     };
     // workspace menus
     menu.append(new MenuItem({ type: 'separator' }));
@@ -454,15 +344,6 @@ export class MenuService implements IMenuService {
         }),
       );
     } else {
-      menu.append(
-        new MenuItem({
-          label: i18n.t('ContextMenu.OpenCommandPalette'),
-          enabled: workspaces.length > 0,
-          click: () => {
-            void this.wikiService.requestWikiSendActionMessage('open-command-palette');
-          },
-        }),
-      );
       if (activeWorkspace !== undefined) {
         const currentWorkspaceContextMenuTemplate = await getWorkspaceMenuTemplate(activeWorkspace, i18n.t.bind(i18n), services);
         currentWorkspaceContextMenuTemplate.forEach((menuItem) => {
@@ -499,28 +380,39 @@ export class MenuService implements IMenuService {
               tagName: workspace.tagName ?? (workspace.isSubWiki ? workspace.name : `${workspace.name} ${i18n.t('WorkspaceSelector.DefaultTiddlers')}`),
             }),
             click: async () => {
-              await openWorkspaceTagTiddler(workspace, services);
+              await this.workspaceService.openWorkspaceTiddler(workspace);
             },
           })),
         }),
       );
     }
+    menu.append(
+      new MenuItem({
+        label: i18n.t('ContextMenu.OpenCommandPalette'),
+        enabled: workspaces.length > 0,
+        click: () => {
+          if (activeWorkspace !== undefined) {
+            void this.wikiService.wikiOperationInBrowser(WikiChannel.dispatchEvent, activeWorkspace.id, ['open-command-palette']);
+          }
+        },
+      }),
+    );
     menu.append(new MenuItem({ type: 'separator' }));
     menu.append(
       new MenuItem({
         label: i18n.t('ContextMenu.Back'),
-        enabled: webContents.canGoBack(),
+        enabled: webContents.navigationHistory.canGoBack(),
         click: () => {
-          webContents.goBack();
+          webContents.navigationHistory.goBack();
         },
       }),
     );
     menu.append(
       new MenuItem({
         label: i18n.t('ContextMenu.Forward'),
-        enabled: webContents.canGoForward(),
+        enabled: webContents.navigationHistory.canGoForward(),
         click: () => {
-          webContents.goForward();
+          webContents.navigationHistory.goForward();
         },
       }),
     );

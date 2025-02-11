@@ -1,7 +1,7 @@
 import React from 'react';
 import { Helmet } from 'react-helmet';
 import { Trans, useTranslation } from 'react-i18next';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 
 import { usePromiseValue } from '@/helpers/useServiceValue';
 import { Button, DialogContent as DialogContentRaw } from '@mui/material';
@@ -65,7 +65,7 @@ const Link = styled.span`
   }
 `;
 
-export default function About(): JSX.Element {
+export default function About(): React.JSX.Element {
   const { t } = useTranslation();
   const versions = usePromiseValue(async () => {
     const processVersions = await window.service.context.get('environmentVersions');
@@ -99,14 +99,14 @@ export default function About(): JSX.Element {
       <ButtonContainer>
         <GoToTheWebsiteButton
           onClick={async () => {
-            await window.service.native.open('https://github.com/tiddly-gittly/TidGi-Desktop');
+            await window.service.native.openURI('https://github.com/tiddly-gittly/TidGi-Desktop');
           }}
         >
           Website
         </GoToTheWebsiteButton>
         <GoToTheWebsiteButton
           onClick={async () => {
-            await window.service.native.open('https://github.com/tiddly-gittly/TidGi-Desktop/issues/new/choose');
+            await window.service.native.openURI('https://github.com/tiddly-gittly/TidGi-Desktop/issues/new/choose');
           }}
         >
           Support
@@ -123,13 +123,13 @@ export default function About(): JSX.Element {
         </Trans>
         <Link
           onClick={async () => {
-            await window.service.native.open('https://onetwo.ren/wiki/');
+            await window.service.native.openURI('https://onetwo.ren/wiki/');
           }}
           onKeyDown={async (event: React.KeyboardEvent<HTMLSpanElement>) => {
             if (event.key !== 'Enter') {
               return;
             }
-            await window.service.native.open('https://onetwo.ren/wiki/');
+            await window.service.native.openURI('https://onetwo.ren/wiki/');
           }}
           role='link'
           tabIndex={0}
@@ -139,13 +139,13 @@ export default function About(): JSX.Element {
         <span>&&</span>
         <Link
           onClick={async () => {
-            await window.service.native.open('https://webcatalog.app/?utm_source=tidgi_app');
+            await window.service.native.openURI('https://webcatalog.app/?utm_source=tidgi_app');
           }}
           onKeyDown={async (event: React.KeyboardEvent<HTMLSpanElement>) => {
             if (event.key !== 'Enter') {
               return;
             }
-            await window.service.native.open('https://webcatalog.app/?utm_source=tidgi_app');
+            await window.service.native.openURI('https://webcatalog.app/?utm_source=tidgi_app');
           }}
           role='link'
           tabIndex={0}

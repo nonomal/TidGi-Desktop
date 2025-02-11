@@ -18,21 +18,31 @@ export interface IWindowOpenConfig<N extends WindowNames> {
  * Create and manage window open and destroy, you can get all opened electron window instance here
  */
 export interface IWindowService {
-  clearStorageData(windowName?: WindowNames): Promise<void>;
+  clearStorageData(workspaceID: string, windowName?: WindowNames): Promise<void>;
+  /** cleanup all window references for GC */
+  clearWindowsReference(): Promise<void>;
+  /**
+   * Completely close a window, destroy its all state and WebContentsView. Need more time to restore. Use `hide` if you want to hide it temporarily.
+   */
   close(windowName: WindowNames): Promise<void>;
-  findInPage(text: string, forward?: boolean | undefined, windowName?: WindowNames): Promise<void>;
+  findInPage(text: string, forward?: boolean | undefined): Promise<void>;
   /** get window, this should not be called in renderer side */
   get(windowName: WindowNames): BrowserWindow | undefined;
   getWindowMeta<N extends WindowNames>(windowName: N): Promise<WindowMeta[N] | undefined>;
-  goBack(windowName: WindowNames): Promise<void>;
-  goForward(windowName: WindowNames): Promise<void>;
-  goHome(windowName: WindowNames): Promise<void>;
+  goBack(): Promise<void>;
+  goForward(): Promise<void>;
+  goHome(): Promise<void>;
+  /**
+   * Temporarily hide window, it will not be destroyed, and can be shown again very quick, with WebContentsView restored immediately.
+   */
+  hide(windowName: WindowNames): Promise<void>;
   isFullScreen(windowName?: WindowNames): Promise<boolean | undefined>;
   isMenubarOpen(): Promise<boolean>;
   loadURL(windowName: WindowNames, newUrl?: string): Promise<void>;
   maximize(): Promise<void>;
   /**
-   * Create a new window.
+   * Create a new window. Handles setup of window configs.
+   * See `src/services/windows/handleCreateBasicWindow.ts` for `new BrowserWindow` process.
    * @param returnWindow Return created window or not. Usually false, so this method can be call IPC way (because window will cause `Failed to serialize arguments`).
    */
   open<N extends WindowNames>(windowName: N, meta?: WindowMeta[N], config?: IWindowOpenConfig<N>): Promise<undefined>;
@@ -41,6 +51,8 @@ export interface IWindowService {
   reload(windowName: WindowNames): Promise<void>;
   requestRestart(): Promise<void>;
   sendToAllWindows: (channel: Channels, ...arguments_: unknown[]) => Promise<void>;
+  /** set window or delete window object by passing undefined (will not close it, only remove reference), this should not be called in renderer side */
+  set(windowName: WindowNames, win: BrowserWindow | undefined): void;
   setWindowMeta<N extends WindowNames>(windowName: N, meta?: WindowMeta[N]): Promise<void>;
   stopFindInPage(close?: boolean | undefined, windowName?: WindowNames): Promise<void>;
   updateWindowMeta<N extends WindowNames>(windowName: N, meta?: WindowMeta[N]): Promise<void>;

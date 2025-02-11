@@ -2,23 +2,22 @@
 /* eslint-disable @typescript-eslint/no-misused-promises */
 /* eslint-disable @typescript-eslint/require-await */
 /* eslint-disable @typescript-eslint/no-dynamic-delete */
-import { dialog, ipcMain, shell } from 'electron';
+import { dialog, shell } from 'electron';
 import { backOff } from 'exponential-backoff';
-import fs from 'fs-extra';
+import { copy, createSymlink, exists, mkdir, mkdirp, mkdirs, pathExists, readFile, remove } from 'fs-extra';
 import { injectable } from 'inversify';
 import path from 'path';
 import { ModuleThread, spawn, Thread, Worker } from 'threads';
 import type { WorkerEvent } from 'threads/dist/types/master';
 
 import { WikiChannel } from '@/constants/channels';
-import { PACKAGE_PATH_BASE, SQLITE_BINARY_PATH, TIDDLERS_PATH, TIDDLYWIKI_PACKAGE_FOLDER, TIDDLYWIKI_TEMPLATE_FOLDER_PATH } from '@/constants/paths';
+import { TIDDLERS_PATH, TIDDLYWIKI_PACKAGE_FOLDER, TIDDLYWIKI_TEMPLATE_FOLDER_PATH } from '@/constants/paths';
 import type { IAuthenticationService } from '@services/auth/interface';
 import { lazyInject } from '@services/container';
 import type { IGitService, IGitUserInfos } from '@services/git/interface';
 import { i18n } from '@services/libs/i18n';
 import { getWikiErrorLogFileName, logger, startWikiLogger } from '@services/libs/log';
 import serviceIdentifier from '@services/serviceIdentifier';
-import { SupportedStorageServices } from '@services/types';
 import type { IViewService } from '@services/view/interface';
 import type { IWindowService } from '@services/windows/interface';
 import { WindowNames } from '@services/windows/WindowProperties';
@@ -26,7 +25,7 @@ import type { IWorkspace, IWorkspaceService } from '@services/workspaces/interfa
 import type { IWorkspaceViewService } from '@services/workspacesView/interface';
 import { Observable } from 'rxjs';
 import type { IChangedTiddlers } from 'tiddlywiki';
-import { CopyWikiTemplateError, DoubleWikiInstanceError, SubWikiSMainWikiNotExistError, WikiRuntimeError } from './error';
+import { AlreadyExistError, CopyWikiTemplateError, DoubleWikiInstanceError, HTMLCanNotLoadError, SubWikiSMainWikiNotExistError, WikiRuntimeError } from './error';
 import { IWikiService, WikiControlActions } from './interface';
 import { getSubWikiPluginContent, ISubWikiPluginContent, updateSubWikiPluginContent } from './plugin/subWikiPlugin';
 import type { IStartNodeJSWikiConfigs, WikiWorker } from './wikiWorker';
@@ -38,9 +37,11 @@ import workerURL from 'threads-plugin/dist/loader?name=wikiWorker!./wikiWorker/i
 
 import { LOG_FOLDER } from '@/constants/appPaths';
 import { isDevelopmentOrTest } from '@/constants/environment';
+import { isHtmlWiki } from '@/constants/fileNames';
 import { defaultServerIP } from '@/constants/urls';
 import { IDatabaseService } from '@services/database/interface';
 import { IPreferenceService } from '@services/preferences/interface';
+import { ISyncService } from '@services/sync/interface';
 import { mapValues } from 'lodash';
 import { wikiWorkerStartedEventName } from './constants';
 import { IWorkerWikiOperations } from './wikiOperations/executor/wikiOperationInServer';
@@ -72,17 +73,11 @@ export class Wiki implements IWikiService {
   @lazyInject(serviceIdentifier.WorkspaceView)
   private readonly workspaceViewService!: IWorkspaceViewService;
 
+  @lazyInject(serviceIdentifier.Sync)
+  private readonly syncService!: ISyncService;
+
   public async getSubWikiPluginContent(mainWikiPath: string): Promise<ISubWikiPluginContent[]> {
     return await getSubWikiPluginContent(mainWikiPath);
-  }
-
-  public async requestWikiSendActionMessage(actionMessage: string): Promise<void> {
-    const browserViews = await this.viewService.getActiveBrowserViews();
-    browserViews.forEach((browserView) => {
-      if (browserView?.webContents) {
-        browserView.webContents.send(WikiChannel.sendActionMessage, actionMessage);
-      }
-    });
   }
 
   // handlers
@@ -159,6 +154,8 @@ export class Wiki implements IWikiService {
         reject(new WikiRuntimeError(error, name, false));
       });
       Thread.events(worker).subscribe((event: WorkerEvent) => {
+        // can't import WorkerEventType from 'threads/dist/types/master' because it's causing error
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-comparison
         if (event.type === 'message') {
           wikiLogger.info('', {
             ...mapValues(
@@ -166,23 +163,13 @@ export class Wiki implements IWikiService {
               (value: unknown) => typeof value === 'string' ? (value.length > 200 ? `${value.substring(0, 200)}... (substring(0, 200))` : value) : String(value),
             ),
           });
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-comparison
         } else if (event.type === 'termination') {
           delete this.wikiWorkers[workspaceID];
           const warningMessage = `NodeJSWiki ${workspaceID} Worker stopped (can be normal quit, or unexpected error, see other logs to determine)`;
           logger.info(warningMessage, loggerMeta);
           logger.info(`startWiki() rejected with message.type === 'message' and event.type === 'termination'`, loggerMeta);
           resolve();
-        }
-      });
-
-      logger.debug('startWiki calling initCacheDatabase in the main process', { function: 'wikiWorker.initCacheDatabase' });
-      worker.initCacheDatabase({
-        databaseFile: this.databaseService.getWorkspaceDataBasePath(workspaceID),
-        sqliteBinary: SQLITE_BINARY_PATH,
-        packagePathBase: PACKAGE_PATH_BASE,
-      }).subscribe(async (message) => {
-        if (message.type === 'stderr' || message.type === 'stdout') {
-          logger.info(message.message, { function: 'wikiWorker.initCacheDatabase' });
         }
       });
 
@@ -236,6 +223,23 @@ export class Wiki implements IWikiService {
         }
       });
     });
+    void this.afterWikiStart(workspaceID);
+  }
+
+  private async afterWikiStart(workspaceID: string): Promise<void> {
+    const workspace = await this.workspaceService.get(workspaceID);
+    if (workspace === undefined) {
+      logger.error('afterWikiStart() get workspace failed', { workspaceID });
+      return;
+    }
+    const { isSubWiki, enableHTTPAPI } = workspace;
+    if (!isSubWiki && enableHTTPAPI) {
+      // Auto enable server filters if HTTP API is enabled. So this feature immediately available to 3rd party apps, reduce user confusion.
+      await this.wikiOperationInServer(WikiChannel.addTiddler, workspaceID, [
+        '$:/config/Server/AllowAllExternalFilters',
+        'yes',
+      ]);
+    }
   }
 
   /**
@@ -270,7 +274,8 @@ export class Wiki implements IWikiService {
   }
 
   public async callWikiIpcServerRoute<NAME extends IpcServerRouteNames>(workspaceID: string, route: NAME, ...arguments_: Parameters<IpcServerRouteMethods[NAME]>) {
-    logger.debug(`callWikiIpcServerRoute get ${route}`, { arguments_, workspaceID });
+    // don't log full `arguments_` here, it might contains huge text
+    logger.debug(`callWikiIpcServerRoute get ${route}`, { workspaceID });
     const worker = await this.getWorkerEnsure(workspaceID);
     logger.debug(`callWikiIpcServerRoute got worker`);
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment, @typescript-eslint/prefer-ts-expect-error
@@ -296,12 +301,16 @@ export class Wiki implements IWikiService {
     // We want the folder where the WIKI is saved to be empty, and we want the input htmlWiki to be an HTML file even if it is a non-wikiHTML file. Otherwise the program will exit abnormally.
     const worker = await spawn<WikiWorker>(new Worker(workerURL as string), { timeout: 1000 * 60 });
     try {
+      if (!isHtmlWiki(htmlWikiPath)) {
+        throw new HTMLCanNotLoadError(htmlWikiPath);
+      }
+      if (await exists(saveWikiFolderPath)) {
+        throw new AlreadyExistError(saveWikiFolderPath);
+      }
       await worker.extractWikiHTML(htmlWikiPath, saveWikiFolderPath, { TIDDLYWIKI_PACKAGE_FOLDER });
     } catch (error) {
-      const result = (error as Error).message;
+      const result = `${(error as Error).name} ${(error as Error).message}`;
       logger.error(result, { worker: 'NodeJSWiki', method: 'extractWikiHTML', htmlWikiPath, saveWikiFolderPath });
-      // removes the folder function that failed to convert.
-      await fs.remove(saveWikiFolderPath);
       return result;
     }
     // this worker is only for one time use. we will spawn a new one for starting wiki later.
@@ -318,13 +327,13 @@ export class Wiki implements IWikiService {
   public async stopWiki(id: string): Promise<void> {
     const worker = this.getWorker(id);
     if (worker === undefined) {
-      logger.warning(`No wiki for ${id}. No running worker, means maybe tiddlywiki server in this workspace failed to start`, {
+      logger.warn(`No wiki for ${id}. No running worker, means maybe tiddlywiki server in this workspace failed to start`, {
         function: 'stopWiki',
         stack: new Error('stack').stack?.replace('Error:', '') ?? 'no stack',
       });
       return;
     }
-    clearInterval(this.wikiSyncIntervals[id]);
+    this.syncService.stopIntervalSync(id);
     try {
       logger.debug(`worker.beforeExit for ${id}`);
       await worker.beforeExit();
@@ -335,6 +344,7 @@ export class Wiki implements IWikiService {
       logger.error(`Wiki-worker have error ${(error as Error).message} when try to stop`, { function: 'stopWiki' });
       // await worker.terminate();
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (this.wikiWorkers[id] as any) = undefined;
     logger.info(`Wiki-worker for ${id} stopped`, { function: 'stopWiki' });
   }
@@ -357,7 +367,7 @@ export class Wiki implements IWikiService {
    * @param message will show in the UI
    */
   private readonly logProgress = (message: string): void => {
-    logger.notice(message, { handler: WikiChannel.createProgress });
+    logger.info(message, { handler: WikiChannel.createProgress });
   };
 
   private readonly folderToContainSymlinks = 'subwiki';
@@ -373,10 +383,10 @@ export class Wiki implements IWikiService {
     const subwikiSymlinkPath = path.join(mainWikiTiddlersFolderSubWikisPath, folderName);
     try {
       try {
-        await fs.remove(subwikiSymlinkPath);
+        await remove(subwikiSymlinkPath);
       } catch {}
-      await fs.mkdirp(mainWikiTiddlersFolderSubWikisPath);
-      await fs.createSymlink(subWikiPath, subwikiSymlinkPath, 'junction');
+      await mkdirp(mainWikiTiddlersFolderSubWikisPath);
+      await createSymlink(subWikiPath, subwikiSymlinkPath, 'junction');
       this.logProgress(i18n.t('AddWorkspace.CreateLinkFromSubWikiToMainWikiSucceed'));
     } catch (error: unknown) {
       throw new Error(i18n.t('AddWorkspace.CreateLinkFromSubWikiToMainWikiFailed', { subWikiPath, mainWikiTiddlersFolderPath: subwikiSymlinkPath, error }));
@@ -386,17 +396,17 @@ export class Wiki implements IWikiService {
   private async createWiki(newFolderPath: string, folderName: string): Promise<void> {
     this.logProgress(i18n.t('AddWorkspace.StartUsingTemplateToCreateWiki'));
     const newWikiPath = path.join(newFolderPath, folderName);
-    if (!(await fs.pathExists(newFolderPath))) {
+    if (!(await pathExists(newFolderPath))) {
       throw new Error(i18n.t('AddWorkspace.PathNotExist', { path: newFolderPath }));
     }
-    if (!(await fs.pathExists(TIDDLYWIKI_TEMPLATE_FOLDER_PATH))) {
+    if (!(await pathExists(TIDDLYWIKI_TEMPLATE_FOLDER_PATH))) {
       throw new Error(i18n.t('AddWorkspace.WikiTemplateMissing', { TIDDLYWIKI_TEMPLATE_FOLDER_PATH }));
     }
-    if (await fs.pathExists(newWikiPath)) {
+    if (await pathExists(newWikiPath)) {
       throw new Error(i18n.t('AddWorkspace.WikiExisted', { newWikiPath }));
     }
     try {
-      await fs.copy(TIDDLYWIKI_TEMPLATE_FOLDER_PATH, newWikiPath, {
+      await copy(TIDDLYWIKI_TEMPLATE_FOLDER_PATH, newWikiPath, {
         filter: (source: string, destination: string) => {
           // xxx/template/wiki/.gitignore
           // xxx/template/wiki/.github
@@ -415,18 +425,18 @@ export class Wiki implements IWikiService {
     this.logProgress(i18n.t('AddWorkspace.WikiTemplateCopyCompleted') + newWikiPath);
   }
 
-  public async createSubWiki(parentFolderLocation: string, folderName: string, mainWikiPath: string, tagName = '', onlyLink = false): Promise<void> {
+  public async createSubWiki(parentFolderLocation: string, folderName: string, subWikiFolderName: string, mainWikiPath: string, tagName = '', onlyLink = false): Promise<void> {
     this.logProgress(i18n.t('AddWorkspace.StartCreatingSubWiki'));
     const newWikiPath = path.join(parentFolderLocation, folderName);
-    if (!(await fs.pathExists(parentFolderLocation))) {
+    if (!(await pathExists(parentFolderLocation))) {
       throw new Error(i18n.t('AddWorkspace.PathNotExist', { path: parentFolderLocation }));
     }
     if (!onlyLink) {
-      if (await fs.pathExists(newWikiPath)) {
+      if (await pathExists(newWikiPath)) {
         throw new Error(i18n.t('AddWorkspace.WikiExisted', { newWikiPath }));
       }
       try {
-        await fs.mkdirs(newWikiPath);
+        await mkdirs(newWikiPath);
       } catch {
         throw new Error(i18n.t('AddWorkspace.CantCreateFolderHere', { newWikiPath }));
       }
@@ -435,7 +445,7 @@ export class Wiki implements IWikiService {
     await this.linkWiki(mainWikiPath, folderName, newWikiPath);
     if (typeof tagName === 'string' && tagName.length > 0) {
       this.logProgress(i18n.t('AddWorkspace.AddFileSystemPath'));
-      updateSubWikiPluginContent(mainWikiPath, { tagName, subWikiFolderName: folderName });
+      updateSubWikiPluginContent(mainWikiPath, newWikiPath, { tagName, subWikiFolderName });
     }
 
     this.logProgress(i18n.t('AddWorkspace.SubWikiCreationCompleted'));
@@ -444,22 +454,22 @@ export class Wiki implements IWikiService {
   public async removeWiki(wikiPath: string, mainWikiToUnLink?: string, onlyRemoveLink = false): Promise<void> {
     if (mainWikiToUnLink !== undefined) {
       const subWikiName = path.basename(wikiPath);
-      await fs.remove(path.join(mainWikiToUnLink, TIDDLERS_PATH, this.folderToContainSymlinks, subWikiName));
+      await shell.trashItem(path.join(mainWikiToUnLink, TIDDLERS_PATH, this.folderToContainSymlinks, subWikiName));
     }
     if (!onlyRemoveLink) {
-      await fs.remove(wikiPath);
+      await shell.trashItem(wikiPath);
     }
   }
 
   public async ensureWikiExist(wikiPath: string, shouldBeMainWiki: boolean): Promise<void> {
-    if (!(await fs.pathExists(wikiPath))) {
+    if (!(await pathExists(wikiPath))) {
       throw new Error(i18n.t('AddWorkspace.PathNotExist', { path: wikiPath }));
     }
     const wikiInfoPath = path.resolve(wikiPath, 'tiddlywiki.info');
-    if (shouldBeMainWiki && !(await fs.pathExists(wikiInfoPath))) {
+    if (shouldBeMainWiki && !(await pathExists(wikiInfoPath))) {
       throw new Error(i18n.t('AddWorkspace.ThisPathIsNotAWikiFolder', { wikiPath, wikiInfoPath }));
     }
-    if (shouldBeMainWiki && !(await fs.pathExists(path.join(wikiPath, TIDDLERS_PATH)))) {
+    if (shouldBeMainWiki && !(await pathExists(path.join(wikiPath, TIDDLERS_PATH)))) {
       throw new Error(i18n.t('AddWorkspace.ThisPathIsNotAWikiFolder', { wikiPath }));
     }
   }
@@ -510,14 +520,14 @@ export class Wiki implements IWikiService {
   public async cloneWiki(parentFolderLocation: string, wikiFolderName: string, gitRepoUrl: string, gitUserInfo: IGitUserInfos): Promise<void> {
     this.logProgress(i18n.t('AddWorkspace.StartCloningWiki'));
     const newWikiPath = path.join(parentFolderLocation, wikiFolderName);
-    if (!(await fs.pathExists(parentFolderLocation))) {
+    if (!(await pathExists(parentFolderLocation))) {
       throw new Error(i18n.t('AddWorkspace.PathNotExist', { path: parentFolderLocation }));
     }
-    if (await fs.pathExists(newWikiPath)) {
+    if (await pathExists(newWikiPath)) {
       throw new Error(i18n.t('AddWorkspace.WikiExisted', { newWikiPath }));
     }
     try {
-      await fs.mkdir(newWikiPath);
+      await mkdir(newWikiPath);
     } catch {
       throw new Error(i18n.t('AddWorkspace.CantCreateFolderHere', { newWikiPath }));
     }
@@ -534,14 +544,14 @@ export class Wiki implements IWikiService {
   ): Promise<void> {
     this.logProgress(i18n.t('AddWorkspace.StartCloningSubWiki'));
     const newWikiPath = path.join(parentFolderLocation, wikiFolderName);
-    if (!(await fs.pathExists(parentFolderLocation))) {
+    if (!(await pathExists(parentFolderLocation))) {
       throw new Error(i18n.t('AddWorkspace.PathNotExist', { path: parentFolderLocation }));
     }
-    if (await fs.pathExists(newWikiPath)) {
+    if (await pathExists(newWikiPath)) {
       throw new Error(i18n.t('AddWorkspace.WikiExisted', { newWikiPath }));
     }
     try {
-      await fs.mkdir(newWikiPath);
+      await mkdir(newWikiPath);
     } catch {
       throw new Error(i18n.t('AddWorkspace.CantCreateFolderHere', { newWikiPath }));
     }
@@ -550,7 +560,7 @@ export class Wiki implements IWikiService {
     await this.linkWiki(mainWikiPath, wikiFolderName, path.join(parentFolderLocation, wikiFolderName));
     if (typeof tagName === 'string' && tagName.length > 0) {
       this.logProgress(i18n.t('AddWorkspace.AddFileSystemPath'));
-      updateSubWikiPluginContent(mainWikiPath, { tagName, subWikiFolderName: wikiFolderName });
+      updateSubWikiPluginContent(mainWikiPath, newWikiPath, { tagName, subWikiFolderName: wikiFolderName });
     }
   }
 
@@ -569,117 +579,8 @@ export class Wiki implements IWikiService {
     return this.justStartedWiki[id] ?? false;
   }
 
-  public async getTiddlerText(workspace: IWorkspace, title: string): Promise<string | undefined> {
-    const textResult: string = await new Promise((resolve) => {
-      /**
-       * Use nonce to prevent data racing
-       */
-      const nonce = Math.random();
-      const listener = (_event: Electron.IpcMainEvent, nonceReceived: number, value: string): void => {
-        if (nonce === nonceReceived) {
-          ipcMain.removeListener(WikiChannel.getTiddlerTextDone, listener);
-          resolve(value);
-        }
-      };
-      ipcMain.on(WikiChannel.getTiddlerTextDone, listener);
-      const browserView = this.viewService.getView(workspace.id, WindowNames.main);
-      if (!browserView?.webContents) {
-        logger.error(`browserView is undefined in getTiddlerText ${workspace.id} when running title ${title}`);
-        return;
-      }
-      browserView.webContents.send(WikiChannel.getTiddlerText, nonce, title);
-    });
-    return textResult;
-  }
-
-  /**
-   * Trigger git sync
-   * Simply do some check before calling `gitService.commitAndSync`
-   */
-  private async syncWikiIfNeeded(workspace: IWorkspace): Promise<void> {
-    const { gitUrl: githubRepoUrl, storageService, backupOnInterval, id } = workspace;
-    const checkCanSyncDueToNoDraft = async (): Promise<boolean> => {
-      const syncOnlyWhenNoDraft = await this.preferenceService.get('syncOnlyWhenNoDraft');
-      if (!syncOnlyWhenNoDraft) {
-        return true;
-      }
-      try {
-        const draftTitles = await this.wikiOperationInServer(WikiChannel.runFilter, id, ['[is[draft]]']);
-        // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
-        if (Array.isArray(draftTitles) && draftTitles.length > 0) {
-          return false;
-        }
-        return true;
-      } catch (error) {
-        logger.error(
-          `${(error as Error).message} when checking draft titles. ${
-            (error as Error).stack ?? ''
-          }\n This might because it just will throw error when on Windows and App is at background (BrowserView will disappear and not accessible.)`,
-        );
-        // when app is on background, might have no draft, because user won't edit it. So just return true
-        return true;
-      }
-    };
-    const userInfo = await this.authService.getStorageServiceUserInfo(storageService);
-
-    if (
-      storageService !== SupportedStorageServices.local &&
-      typeof githubRepoUrl === 'string' &&
-      userInfo !== undefined &&
-      (await checkCanSyncDueToNoDraft())
-    ) {
-      const hasChanges = await this.gitService.commitAndSync(workspace, { remoteUrl: githubRepoUrl, userInfo });
-      if (hasChanges) {
-        await this.workspaceViewService.restartWorkspaceViewService(id);
-        await this.viewService.reloadViewsWebContents(id);
-      }
-    } else if (backupOnInterval && (await checkCanSyncDueToNoDraft())) {
-      // for local workspace, commitOnly
-      await this.gitService.commitAndSync(workspace, { commitOnly: true });
-    }
-  }
-
-  /**
-   * Record<workspaceID, returnValue<setInterval>>
-   * Set this in wikiStartup, and clear it when wiki is down.
-   */
-  private wikiSyncIntervals: Record<string, ReturnType<typeof setInterval>> = {};
-  /**
-   * Trigger git sync interval if needed in config
-   */
-  private async startIntervalSyncIfNeeded(workspace: IWorkspace): Promise<void> {
-    const { syncOnInterval, backupOnInterval, id } = workspace;
-    if (syncOnInterval || backupOnInterval) {
-      const syncDebounceInterval = await this.preferenceService.get('syncDebounceInterval');
-      this.wikiSyncIntervals[id] = setInterval(async () => {
-        await this.syncWikiIfNeeded(workspace);
-      }, syncDebounceInterval);
-    }
-  }
-
-  private stopIntervalSync(workspace: IWorkspace): void {
-    const { id } = workspace;
-    if (typeof this.wikiSyncIntervals[id] === 'number') {
-      clearInterval(this.wikiSyncIntervals[id]);
-    }
-  }
-
-  public clearAllSyncIntervals(): void {
-    Object.values(this.wikiSyncIntervals).forEach((interval) => {
-      clearInterval(interval);
-    });
-  }
-
   public async wikiStartup(workspace: IWorkspace): Promise<void> {
-    const { id, isSubWiki, name, mainWikiID, wikiFolderLocation } = workspace;
-
-    // remove $:/StoryList, otherwise it sometimes cause $__StoryList_1.tid to be generated
-    // and it will leak private sub-wiki's opened tiddler title
-    try {
-      void fs.unlink(path.resolve(wikiFolderLocation, 'tiddlers', '$__StoryList')).catch(() => {});
-    } catch {
-      // do nothing
-    }
+    const { id, isSubWiki, name, mainWikiID } = workspace;
 
     const userName = await this.authService.getUserName(workspace);
 
@@ -717,7 +618,7 @@ export class Wiki implements IWikiService {
         }
       }
     }
-    await this.startIntervalSyncIfNeeded(workspace);
+    await this.syncService.startIntervalSyncIfNeeded(workspace);
   }
 
   public async restartWiki(workspace: IWorkspace): Promise<void> {
@@ -726,16 +627,16 @@ export class Wiki implements IWikiService {
     // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
     const userName = await this.authService.getUserName(workspace);
 
-    this.stopIntervalSync(workspace);
+    this.syncService.stopIntervalSync(id);
     if (!isSubWiki) {
       await this.stopWiki(id);
       await this.startWiki(id, userName);
     }
-    await this.startIntervalSyncIfNeeded(workspace);
+    await this.syncService.startIntervalSyncIfNeeded(workspace);
   }
 
-  public async updateSubWikiPluginContent(mainWikiPath: string, newConfig?: IWorkspace, oldConfig?: IWorkspace): Promise<void> {
-    updateSubWikiPluginContent(mainWikiPath, newConfig, oldConfig);
+  public async updateSubWikiPluginContent(mainWikiPath: string, subWikiPath: string, newConfig?: IWorkspace, oldConfig?: IWorkspace): Promise<void> {
+    updateSubWikiPluginContent(mainWikiPath, subWikiPath, newConfig, oldConfig);
   }
 
   public async wikiOperationInBrowser<OP extends keyof ISendWikiOperationsToBrowser>(
@@ -743,6 +644,9 @@ export class Wiki implements IWikiService {
     workspaceID: string,
     arguments_: Parameters<ISendWikiOperationsToBrowser[OP]>,
   ) {
+    // At least wait for wiki started. Otherwise some services like theme may try to call this method even on app start.
+    await this.getWorkerEnsure(workspaceID);
+    await this.viewService.getLoadedViewEnsure(workspaceID, WindowNames.main);
     const sendWikiOperationsToBrowser = getSendWikiOperationsToBrowser(workspaceID);
     if (typeof sendWikiOperationsToBrowser[operationType] !== 'function') {
       throw new TypeError(`${operationType} gets no useful handler`);
@@ -781,20 +685,19 @@ export class Wiki implements IWikiService {
     });
   }
 
-  public async openTiddlerInExternal(title: string, workspaceID?: string): Promise<void> {
+  public async getTiddlerFilePath(title: string, workspaceID?: string): Promise<string | undefined> {
     const wikiWorker = this.getWorker(workspaceID ?? (await this.workspaceService.getActiveWorkspace())?.id ?? '');
     if (wikiWorker !== undefined) {
       const tiddlerFileMetadata = await wikiWorker.getTiddlerFileMetadata(title);
       if (tiddlerFileMetadata?.filepath !== undefined) {
-        logger.debug(`openTiddlerInExternal() Opening ${tiddlerFileMetadata.filepath}`);
-        await shell.openPath(tiddlerFileMetadata.filepath);
+        return tiddlerFileMetadata.filepath;
       }
     }
   }
 
   public async getWikiErrorLogs(workspaceID: string, wikiName: string): Promise<{ content: string; filePath: string }> {
     const filePath = path.join(LOG_FOLDER, getWikiErrorLogFileName(workspaceID, wikiName));
-    const content = await fs.readFile(filePath, 'utf8');
+    const content = await readFile(filePath, 'utf8');
     return {
       content,
       filePath,

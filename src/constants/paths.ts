@@ -19,16 +19,13 @@ const menuBarIconFileName = isMac ? 'menubarTemplate@2x.png' : 'menubar@2x.png';
 export const MENUBAR_ICON_PATH = path.resolve(isDevelopmentOrTest ? buildResourcePath : process.resourcesPath, menuBarIconFileName);
 
 export const CHROME_ERROR_PATH = 'chrome-error://chromewebdata/';
-export const LOGIN_REDIRECT_PATH = 'http://localhost:3012/?code=';
 export const DESKTOP_PATH = path.join(os.homedir(), 'Desktop');
 
 export const PACKAGE_PATH_BASE = isDevelopmentOrTest
   ? path.resolve(__dirname, '..', '..', 'node_modules')
   : path.resolve(process.resourcesPath, 'node_modules');
 export const ZX_FOLDER = path.resolve(PACKAGE_PATH_BASE, 'zx', 'build', 'cli.js');
-export const TIDDLYWIKI_PACKAGE_FOLDER = path.resolve(PACKAGE_PATH_BASE, '@tiddlygit', 'tiddlywiki', 'boot');
-export const SQLITE_BINARY_PATH = path.resolve(PACKAGE_PATH_BASE, 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node');
-export const RWKV_CPP_TOKENIZER_PATH = path.resolve(PACKAGE_PATH_BASE, 'llama-node', '20B_tokenizer.json');
+export const TIDDLYWIKI_PACKAGE_FOLDER = path.resolve(PACKAGE_PATH_BASE, 'tiddlywiki', 'boot');
 
 export const LOCALIZATION_FOLDER = isDevelopmentOrTest
   ? path.resolve(sourcePath, '..', localizationFolderName)

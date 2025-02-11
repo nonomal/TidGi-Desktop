@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import { useTranslation } from 'react-i18next';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 
 import { useRestartSnackbar } from '@/components/RestartSnackbar';
 
@@ -10,7 +10,6 @@ import { DeveloperTools } from './sections/DeveloperTools';
 import { Downloads } from './sections/Downloads';
 import { FriendLinks } from './sections/FriendLinks';
 import { General } from './sections/General';
-import { LanguageModel } from './sections/LanguageModel';
 import { Languages } from './sections/Languages';
 import { Miscellaneous } from './sections/Miscellaneous';
 import { Network } from './sections/Network';
@@ -34,16 +33,19 @@ const Inner = styled.div`
   float: right;
 `;
 
-export default function Preferences(): JSX.Element {
+export default function Preferences(): React.JSX.Element {
   const { t } = useTranslation();
   const sections = usePreferenceSections();
   const [requestRestartCountDown, RestartSnackbar] = useRestartSnackbar();
 
   // handle open preference from other window, and goto some tab
   useEffect(() => {
-    const scrollTo = (window.meta as IPossibleWindowMeta<WindowMeta[WindowNames.preferences]>).gotoTab;
+    const scrollTo = (window.meta() as IPossibleWindowMeta<WindowMeta[WindowNames.preferences]>).preferenceGotoTab;
     if (scrollTo === undefined) return;
-    sections[scrollTo].ref?.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setTimeout(() => {
+      // wait 100ms so page anchors are all loaded. Otherwise scroll will stop halfway.
+      sections[scrollTo].ref?.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
   }, [sections]);
 
   return (
@@ -59,7 +61,6 @@ export default function Preferences(): JSX.Element {
       <Inner>
         <TiddlyWiki sections={sections} requestRestartCountDown={requestRestartCountDown} />
         <General sections={sections} requestRestartCountDown={requestRestartCountDown} />
-        <LanguageModel sections={sections} />
         <Sync sections={sections} requestRestartCountDown={requestRestartCountDown} />
         <Notifications sections={sections} requestRestartCountDown={requestRestartCountDown} />
         <System sections={sections} />

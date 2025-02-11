@@ -5,18 +5,6 @@ declare module 'errio' {
   export function register(error: ErrorConstructor): void;
 }
 
-declare module '@tiddlygit/tiddlywiki' {
-  export * from 'tiddlywiki';
-}
-
-declare module 'llama-node/dist/llm/llama-cpp.cjs' {
-  export { LLamaCpp } from 'llama-node/dist/llm/llama-cpp';
-}
-declare module 'llama-node/dist/llm/rwkv-cpp.cjs' {
-  export { RwkvCpp } from 'llama-node/dist/llm/rwkv-cpp';
-}
-
-
 declare module 'espree' {
   // https://github.com/eslint/espree#options
   export interface Options {
@@ -84,55 +72,6 @@ declare module '*.png' {
 declare module '*.svg' {
   const value: string;
   export default value;
-}
-declare module '@authing/sso' {
-  export interface ILoginInfo {
-    urlParams: UrlParameters;
-    userInfo: UserInfo;
-  }
-  export interface ITrackSessionResultSuccess extends ILoginInfo {
-    session: Session;
-  }
-  export interface ITrackSessionResultFailed {
-    session: null;
-  }
-  export type ITrackSessionResult = ITrackSessionResultSuccess | ITrackSessionResultFailed;
-
-  export interface Session {
-    appId: string;
-    type: string;
-    userId: string;
-  }
-
-  export interface UserInfo {
-    _id: string;
-    company: string;
-    email: string;
-    nickname: string;
-    oauth?: string;
-    photo: string;
-    registerInClient: string;
-    thirdPartyIdentity?: {
-      accessToken?: string;
-      provider?: string;
-    };
-    token: string;
-    tokenExpiredAt: string;
-    username: string;
-  }
-
-  export interface UrlParameters {
-    access_token: string;
-    code: string;
-    id_token: string;
-  }
-
-  export default class AuthingSSO {
-    constructor(options: { appDomain: string; appId: string; redirectUrl: string });
-    trackSession(): Promise<ITrackSessionResult>;
-    logout(): Promise<{ code: number; message?: string }>;
-    login(): Promise<void>;
-  }
 }
 
 interface IDefaultGatewayInfo {

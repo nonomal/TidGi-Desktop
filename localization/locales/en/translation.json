@@ -179,6 +179,11 @@
     "BackupOnIntervalDescription": "When enabled, data will be automatically backed up with local Git at regular intervals (interval in global settings), so that even if no cloud git synchronization address is configured, it will be automatically backed up locally.",
     "WikiRootTiddler": "Wiki Root Tiddler",
     "WikiRootTiddlerDescription": "Wiki's root tiddler determines the core behavior of the system, please read the official documentation to understand before modifying",
+    "WikiRootTiddlerItems": {
+      "all": "Load all at once",
+      "lazy-images": "Load images on demand",
+      "lazy-all": "Load images and text on demand"
+    },
     "ReadOnlyModeDescription": "Can be used with intranet penetration, allowing TidGi work as a server program  to deploy blogs. After opening, wiki can only be modified by directly modifying the file on the disk  (including using git synchronization). The content cannot be modified on the web page, but anyone can access it.",
     "ReadOnlyMode": "ReadOnly Mode",
     "TokenAuth": "Token Authenticate",
@@ -203,12 +208,17 @@
     "HTTPSKeyPathDescription": "The location of the private key file with the suffix .key.",
     "LastNodeJSArgv": "Command line arguments from the latest startup",
     "EnableHTTPAPI": "Enable HTTP APIs",
-    "EnableHTTPAPIDescription": "Allow third-party programs such as Tiddloid, MaoXianWebclipper clipper, etc. to read and modify your notes through the HTTP network interface.",
+    "EnableHTTPAPIDescription": "Allow third-party programs such as TidGi-Mobile, Tiddlywiki-Collector webclipper, etc. to read and modify your notes through the HTTP network interface.",
     "TokenAuthCurrentToken": "Current Token of Token Auth",
     "TokenAuthCurrentTokenDescription": "This token is confidential, which needs to be regenerated after being leaked to a hostile entity, and credentials need to be updated for connected third-party applications after regeneration",
     "Generate": "Generate",
     "TokenAuthCurrentTokenEmptyText": "Click the Generate button to generate a new credential",
-    "ClickToExpand": "Click To Expand"
+    "ClickToExpand": "Click To Expand",
+    "MainWorkspacePath": "Main Workspace Path",
+    "IsSubWorkspace": "Is SubWorkspace",
+    "AppearanceOptions": "Appearance Options",
+    "SaveAndSyncOptions": "Save And Sync",
+    "MiscOptions": "Misc"
   },
   "Dialog": {
     "CantFindWorkspaceFolderRemoveWorkspace": "Cannot find the workspace folder that was still there before! \nThe folders that should have existed here may have been removed, or there is no wiki in this folder! \nDo you want to remove the workspace?",
@@ -221,10 +231,14 @@
     "StorageServiceUserInfoNoFoundDetail": "Seems you haven't login to Your storage service, so we disable syncing for this wiki.",
     "RestartMessage": "You need to restart the app for this change to take affect.",
     "Later": "Later",
-    "RestartNow": "Restart Now",
+    "RestartAppNow": "Restart App Now",
+    "RestartWikiNow": "Restart Wiki Now",
+    "Restarting": "Restarting",
     "MadeWithLove": "<0>Made with </0><1>❤</1><2> by </2>",
     "ReportBug": "Report Bug",
-    "ReportBugDetail": "If you have read the tutorial, and carefully read the error output text, and wisely check your input, you can click on the button."
+    "ReportBugDetail": "If you have read the tutorial, and carefully read the error output text, and wisely check your input, you can click on the button.",
+    "FocusedTiddlerNotFoundTitle": "Can't find focused tiddler",
+    "FocusedTiddlerNotFoundTitleDetail": "You can install the FocusedTiddler plugin in CPL."
   },
   "Log": {
     "CantSyncGitNotInitialized": "Unable to sync, this folder is not initialized as a Git repository",
@@ -268,7 +282,12 @@
     "GitTokenExpireOrWrong": "The Git credential (Token) has expired and you need to log in again, or the credential does not correspond to the user name",
     "InitializeWorkspaceViewDone": "Created successfully, content will be loaded soon",
     "FailedToOpenFile": "Failed To Open File {{path}} {{errorMessage}}",
-    "FailedToOpenDirectory": "Failed To Open Directory {{path}} {{errorMessage}}"
+    "FailedToOpenDirectory": "Failed To Open Directory {{path}} {{errorMessage}}",
+    "CantForcePullError": "Failed to force pull, maybe repo is in special state",
+    "StartForcePull": "Start force pull remote, will completely overwrite local",
+    "SkipForcePull": "Skip force pull, no news from remote",
+    "StartResettingLocalToRemote": "Start clearing local and override with remote content",
+    "FinishForcePull": "Finish force pull"
   },
   "Cancel": "Cancel",
   "Preference": {
@@ -316,6 +335,11 @@
     "AskDownloadLocation": "Ask where to save each file before downloading",
     "RememberLastVisitState": "Remember last page visited, restore last visit state on open",
     "Network": "Network",
+    "AntiAntiLeech": "Some website has Anti-Leech, will prevent some images from being displayed on your wiki, we simulate a request header that looks like visiting that website to bypass this protection.",
+    "DisableAntiAntiLeech": "Disable Anti-Anti-Leech",
+    "DisableAntiAntiLeechDetail": "Enable this option to completely disable anti-anti-leech functionality.",
+    "DisableAntiAntiLeechForUrls": "Disable Anti-Anti-Leech for URLs",
+    "DisableAntiAntiLeechForUrlsDetail": "Enter one URL per line to only disable anti-anti-leech for these URLs. Because anti-anti-leech feature may cause some websites with anti-anti-anti-leech to be unable to load images.",
     "PrivacyAndSecurity": "Privacy & Security",
     "ShareBrowsingData": "Share browsing data (cookies, cache) between workspaces, if this is off, you can login into different 3rd party service in each workspace.",
     "IgnoreCertificateErrors": "Ignore network certificate errors",
@@ -364,22 +388,19 @@
     "SyncBeforeShutdown": "Sync Before Shutdown",
     "SyncBeforeShutdownDescription": "Automatically synchronize data before turning off the computer. Note that manually exiting the application will not trigger the synchronization, so as to prevent the wrong data from being synchronized when the application makes an error. \nWindows system does not support this function.",
     "SyncOnlyWhenNoDraft": "Sync only when there are no drafts",
-    "SyncOnlyWhenNoDraftDescription": "Check if there are drafts before synchronizing, if so, it will not be synchronized this time, preventing the drafts from being synchronized to your blog. \n(Not working for sync-before-shutdown, for you may want to bring drafts from one computer to another to continue editing)",
+    "SyncOnlyWhenNoDraftDescription": "Check if there are drafts or WYSIWYG editing before synchronizing, if so, it will not be synchronized this time, preventing the drafts from being synchronized to your blog. \n(Not working for sync-before-shutdown, for you may want to bring drafts from one computer to another to continue editing)",
     "MoreWorkspaceSyncSettingsDescription": "Please right-click the workspace icon, open its workspace setting by click on \"Edit Workspace\" context menu item, and configure its independent synchronization settings in it.",
     "MoreWorkspaceSyncSettings": "More Workspace Sync Settings",
     "ShowSideBarIcon": "Show sidebar workspace icons",
     "HideSideBarIconDetail": "Hide the icon and only display the name of the workspace to make the workspace list more compact",
     "OpenV8CacheFolder": "Open the V8 cache folder",
     "OpenV8CacheFolderDetail": "The V8 cache folder stores cached files that accelerate application startup",
-    "LanguageModel": {
-      "Title": "Language Model",
-      "DefaultModel": "Default language model file name",
-      "DefaultModelDescription": "Each runner can load different models. This is the default model file name for each runner.",
-      "TimeoutDuration": "Timeout Duration",
-      "UpdateTimeoutDuration": "Unit (Second). If a language model does not respond after so long, it will automatically terminate the conversation and stop waiting, as this basically means that it has stopped running. It needs to be greater than 0 and not too small, otherwise it will not be output properly.",
-      "OpenModelFolder": "Open Model Folder",
-      "OpenModelFolderDescription": "The inference program will look for models in this folder, please put your downloaded models here (or use the command line to create a soft link to here)"
-    }
+    "RunOnBackground": "Run On Background",
+    "RunOnBackgroundDetail": "When window is closed, Continue to run in the background without exiting. Quickly restore the window when opening the app again.",
+    "RunOnBackgroundDetailNotMac": "Recommend to enable Attach To Taskbar. So you can restore window use it.",
+    "AttachToTaskbarShowSidebar": "Attach To Taskbar Show Sidebar",
+    "AttachToMenuBarShowSidebar": "Attach To Menu Bar Show Sidebar",
+    "AttachToMenuBarShowSidebarTip": "Generally, TidGi small window is only used to quickly view the current workspace, so the default synchronization with the main window workspace, do not need a sidebar, the default hidden sidebar."
   },
   "Error": {
     "InitWikiGitError": "E-1 InitWikiGitError",
@@ -408,7 +429,11 @@
     "WikiRuntimeError": "E-13 Wiki Runtime Error",
     "WikiRuntimeErrorDescription": "E-13 There is an error while running the wiki. Please check the log file for the reason, and upload and submit an issue for repair.",
     "SubWikiSMainWikiNotExistError": "The main wiki to which the child wiki is attached does not exist",
-    "SubWikiSMainWikiNotExistErrorDescription": "A sub-wiki must choose a main wiki to attach to when it is created, but now the main wiki that this sub-wiki should be attached to cannot be found and cannot be attached."
+    "SubWikiSMainWikiNotExistErrorDescription": "A sub-wiki must choose a main wiki to attach to when it is created, but now the main wiki that this sub-wiki should be attached to cannot be found and cannot be attached.",
+    "HTMLCanNotLoadError": "Current HTML file path can't be used.",
+    "HTMLCanNotLoadErrorDescription": "Please enter a path to a valid tiddlywiki.html file.",
+    "ALreadyExistErrorDescription": "A folder already exists at this path, and a new knowledge base cannot be created here.",
+    "AlreadyExistError": "Folder already exist here."
   },
   "Loading": "Loading",
   "Yes": "Yes",
@@ -443,7 +468,7 @@
     "Close": "Close",
     "FindMatches": "matches",
     "PrintPage": "Print Page",
-    "PrintActiveTiddler": "Print Active Tiddler",
+    "ExportActiveTiddler": "Export Active Tiddler",
     "Wiki": "Wiki",
     "ExportWholeWikiHTML": "Export Whole Wiki as HTML to folder"
   },
@@ -451,12 +476,6 @@
   "ClickForDetails": "Click For Details",
   "Scripting": {
     "ExecutingScript": "Executing Script"
-  },
-  "LanguageModel": {
-    "ModelNotExist": "Model Not Exist",
-    "OpenThisPath": "Open This Path",
-    "ModelNotExistDescription": "Try to load the model using this path you gave, but there is actually no model needed at this location",
-    "GenerationTimeout": "Generation Timeout, Terminated"
   },
   "Description": "Description",
   "Tags": "Tags",
@@ -474,5 +493,9 @@
       "FAQ": "FAQ",
       "Intro": "Intro"
     }
+  },
+  "LOG": {
+    "CommitMessage": "Sync with TidGi-Desktop",
+    "CommitBackupMessage": "Backup with TidGi-Desktop\t"
   }
 }

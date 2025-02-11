@@ -10,9 +10,14 @@
 import { WikiChannel } from '@/constants/channels';
 import { wikiOperationScripts } from '@services/wiki/wikiOperations/executor/scripts/web';
 import { ipcRenderer, webFrame } from 'electron';
-import type { ITiddlerFields } from 'tiddlywiki';
+import type { ITiddlerFields, Tiddler } from 'tiddlywiki';
 
-// use scripts from wikiOperationScripts
+/**
+ * Use scripts from wikiOperationScripts.
+ * This runs in preload script.
+ *
+ * Also need to modify `src/services/wiki/wikiOperations/sender/sendWikiOperationsToBrowser.ts`
+ */
 export const wikiOperations = {
   [WikiChannel.setState]: async (stateKey: string, content: string) => {
     await executeTWJavaScriptWhenIdle(
@@ -25,7 +30,11 @@ export const wikiOperations = {
   },
   [WikiChannel.getTiddlerText]: async (nonceReceived: number, title: string) => {
     const tiddlerText: string = await (executeTWJavaScriptWhenIdle(wikiOperationScripts[WikiChannel.getTiddlerText](title)));
-    ipcRenderer.send(WikiChannel.getTiddlerTextDone, nonceReceived, tiddlerText);
+    ipcRenderer.send(WikiChannel.getTiddlerText, nonceReceived, tiddlerText);
+  },
+  [WikiChannel.getTiddler]: async (nonceReceived: number, title: string) => {
+    const tiddler: Tiddler = await (executeTWJavaScriptWhenIdle(wikiOperationScripts[WikiChannel.getTiddler](title)));
+    ipcRenderer.send(WikiChannel.getTiddler, nonceReceived, tiddler);
   },
   [WikiChannel.runFilter]: async (nonceReceived: number, filter: string) => {
     const filterResult: string[] = await (executeTWJavaScriptWhenIdle(wikiOperationScripts[WikiChannel.runFilter](filter)));
@@ -43,25 +52,28 @@ export const wikiOperations = {
     const renderResult = await (executeTWJavaScriptWhenIdle(wikiOperationScripts[WikiChannel.renderWikiText](content)));
     ipcRenderer.send(WikiChannel.renderWikiText, nonceReceived, renderResult);
   },
-  [WikiChannel.openTiddler]: async (tiddlerName: string) => {
+  [WikiChannel.renderTiddlerOuterHTML]: async (nonceReceived: number, content: string) => {
+    const renderResult = await (executeTWJavaScriptWhenIdle(wikiOperationScripts[WikiChannel.renderTiddlerOuterHTML](content)));
+    ipcRenderer.send(WikiChannel.renderTiddlerOuterHTML, nonceReceived, renderResult);
+  },
+  [WikiChannel.openTiddler]: async (nonceReceived: number, tiddlerName: string) => {
     await executeTWJavaScriptWhenIdle(wikiOperationScripts[WikiChannel.openTiddler](tiddlerName));
   },
-  [WikiChannel.sendActionMessage]: async (actionMessage: string) => {
-    await executeTWJavaScriptWhenIdle(wikiOperationScripts[WikiChannel.sendActionMessage](actionMessage));
+  [WikiChannel.dispatchEvent]: async (nonceReceived: number, actionMessage: string) => {
+    await executeTWJavaScriptWhenIdle(wikiOperationScripts[WikiChannel.dispatchEvent](actionMessage));
   },
-  [WikiChannel.deleteTiddler]: async (title: string) => {
+  [WikiChannel.invokeActionsByTag]: async (nonceReceived: number, tag: string, stringifiedData: string) => {
+    await executeTWJavaScriptWhenIdle(wikiOperationScripts[WikiChannel.invokeActionsByTag](tag, stringifiedData));
+  },
+  [WikiChannel.deleteTiddler]: async (nonceReceived: number, title: string) => {
     await executeTWJavaScriptWhenIdle(wikiOperationScripts[WikiChannel.deleteTiddler](title));
   },
   // web only methods from src/services/wiki/wikiOperations/web.ts
-  [WikiChannel.syncProgress]: async (message: string) => {
+  [WikiChannel.syncProgress]: async (nonceReceived: number, message: string) => {
     await executeTWJavaScriptWhenIdle(wikiOperationScripts[WikiChannel.syncProgress](message));
   },
-  [WikiChannel.generalNotification]: async (message: string) => {
+  [WikiChannel.generalNotification]: async (nonceReceived: number, message: string) => {
     await executeTWJavaScriptWhenIdle(wikiOperationScripts[WikiChannel.generalNotification](message));
-  },
-  [WikiChannel.printTiddler]: async (tiddlerName: string) => {
-    const printScript = await wikiOperationScripts[WikiChannel.printTiddler](tiddlerName);
-    await executeTWJavaScriptWhenIdle(printScript);
   },
 };
 
@@ -82,10 +94,10 @@ async function executeTWJavaScriptWhenIdle<T>(script: string, options?: { onlyWh
   const finalScriptToRun = `
     (async () => await new Promise((resolve, reject) => {
       const handler = () => {
-        requestIdleCallback(() => {
-          if (typeof $tw !== 'undefined') {
+        requestIdleCallback(async () => {
+          if (typeof $tw?.rootWidget !== 'undefined' && typeof $tw?.wiki !== 'undefined') {
             try {
-              const result = (() => {
+              const result = await (async () => {
                 ${script}
               })();
               resolve(result);

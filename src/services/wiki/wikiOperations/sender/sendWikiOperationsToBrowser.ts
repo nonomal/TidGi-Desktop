@@ -15,7 +15,7 @@ import type { ITiddlerFields } from 'tiddlywiki';
 const sendNoWait = sendToMainWindowNoWait;
 const sendAndWait = sendToMainWindowAndAwait;
 /**
- * Handle sending message to trigger operations defined in `src/preload/wikiOperation.ts`
+ * Handle sending message to trigger operations defined in `src/services/wiki/wikiOperations/executor/wikiOperationInBrowser.ts`
  */
 export const getSendWikiOperationsToBrowser = (workspaceID: string) =>
   ({
@@ -57,8 +57,23 @@ export const getSendWikiOperationsToBrowser = (workspaceID: string) =>
     [WikiChannel.setTiddlerText]: async (title: string, value: string, options?: { timeout?: number }): Promise<void> => {
       await sendAndWait(WikiChannel.setTiddlerText, workspaceID, [title, value], options);
     },
+    [WikiChannel.getTiddlerText]: async (title: string): Promise<string | undefined> => {
+      return await sendAndWait<string>(WikiChannel.getTiddlerText, workspaceID, [title]);
+    },
+    [WikiChannel.getTiddler]: async (title: string): Promise<ITiddlerFields | undefined> => {
+      return await sendAndWait<ITiddlerFields>(WikiChannel.getTiddler, workspaceID, [title]);
+    },
     [WikiChannel.renderWikiText]: async (content: string): Promise<string | undefined> => {
       return await sendAndWait(WikiChannel.renderWikiText, workspaceID, [content]);
+    },
+    [WikiChannel.renderTiddlerOuterHTML]: async (title: string): Promise<string | undefined> => {
+      return await sendAndWait<string>(WikiChannel.renderTiddlerOuterHTML, workspaceID, [title]);
+    },
+    [WikiChannel.dispatchEvent]: async (content: string): Promise<string | undefined> => {
+      return await sendAndWait(WikiChannel.dispatchEvent, workspaceID, [content]);
+    },
+    [WikiChannel.invokeActionsByTag]: async (tag: string, data: Record<string, unknown>): Promise<string | undefined> => {
+      return await sendAndWait(WikiChannel.invokeActionsByTag, workspaceID, [tag, JSON.stringify(data)]);
     },
   }) as const;
 export type ISendWikiOperationsToBrowser = ReturnType<typeof getSendWikiOperationsToBrowser>;

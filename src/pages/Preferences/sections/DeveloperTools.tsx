@@ -1,4 +1,4 @@
-import { Divider, List } from '@mui/material';
+import { Divider, List, ListItemButton } from '@mui/material';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,7 +8,7 @@ import { usePromiseValue } from '@/helpers/useServiceValue';
 import { Paper, SectionTitle } from '../PreferenceComponents';
 import type { ISectionProps } from '../useSections';
 
-export function DeveloperTools(props: ISectionProps): JSX.Element {
+export function DeveloperTools(props: ISectionProps): React.JSX.Element {
   const { t } = useTranslation();
 
   const [LOG_FOLDER, SETTINGS_FOLDER, V8_CACHE_FOLDER] = usePromiseValue<[string | undefined, string | undefined, string | undefined]>(
@@ -23,34 +23,31 @@ export function DeveloperTools(props: ISectionProps): JSX.Element {
         <List dense disablePadding>
           {LOG_FOLDER === undefined || SETTINGS_FOLDER === undefined ? <ListItem>{t('Loading')}</ListItem> : (
             <>
-              <ListItem
-                button
+              <ListItemButton
                 onClick={() => {
                   if (LOG_FOLDER !== undefined) {
-                    void window.service.native.open(LOG_FOLDER, true);
+                    void window.service.native.openPath(LOG_FOLDER, true);
                   }
                 }}
               >
                 <ListItemText primary={t('Preference.OpenLogFolder')} secondary={t('Preference.OpenLogFolderDetail')} />
                 <ChevronRightIcon color='action' />
-              </ListItem>
-              <ListItem
-                button
+              </ListItemButton>
+              <ListItemButton
                 onClick={() => {
                   if (SETTINGS_FOLDER !== undefined) {
-                    void window.service.native.open(SETTINGS_FOLDER, true);
+                    void window.service.native.openPath(SETTINGS_FOLDER, true);
                   }
                 }}
               >
                 <ListItemText primary={t('Preference.OpenMetaDataFolder')} secondary={t('Preference.OpenMetaDataFolderDetail')} />
                 <ChevronRightIcon color='action' />
-              </ListItem>
-              <ListItem
-                button
+              </ListItemButton>
+              <ListItemButton
                 onClick={async () => {
                   if (V8_CACHE_FOLDER !== undefined) {
                     try {
-                      await window.service.native.open(V8_CACHE_FOLDER, true);
+                      await window.service.native.openPath(V8_CACHE_FOLDER, true);
                     } catch (error) {
                       console.error(error);
                     }
@@ -59,17 +56,16 @@ export function DeveloperTools(props: ISectionProps): JSX.Element {
               >
                 <ListItemText primary={t('Preference.OpenV8CacheFolder')} secondary={t('Preference.OpenV8CacheFolderDetail')} />
                 <ChevronRightIcon color='action' />
-              </ListItem>
+              </ListItemButton>
               <Divider />
-              <ListItem
-                button
+              <ListItemButton
                 onClick={async () => {
                   await window.service.preference.resetWithConfirm();
                 }}
               >
                 <ListItemText primary={t('Preference.RestorePreferences')} />
                 <ChevronRightIcon color='action' />
-              </ListItem>
+              </ListItemButton>
             </>
           )}
         </List>
